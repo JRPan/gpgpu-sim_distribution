@@ -31,6 +31,7 @@
 DEBUG?=0
 TRACE?=0
 
+
 ifeq ($(DEBUG),1)
 	CXXFLAGS = -Wall -DDEBUG
 else
@@ -53,6 +54,7 @@ else
 	CXXFLAGS += 
 endif
 
+include /home/pan251/accel-sim-framework/gpu-simulator/gpgpu-sim/src/graphics/Makefile.include
 CXXFLAGS += -I$(CUDA_INSTALL_PATH)/include
 
 POWER_FLAGS=

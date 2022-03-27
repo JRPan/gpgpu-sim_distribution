@@ -35,6 +35,8 @@
 #include "cuda-sim.h"
 #include "ptx_ir.h"
 #include "ptx_parser.h"
+#include <sstream>
+#include <cstdlib>
 
 /// extern prototypes
 

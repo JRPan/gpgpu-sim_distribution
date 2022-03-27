@@ -59,7 +59,48 @@ enum special_regs {
   SMID_REG,
   TID_REG,
   WARPID_REG,
-  WARPSZ_REG
+  WARPSZ_REG,
+   //////// START OF SPECIAL REGISTERS USED IN GRAPHICS ////////
+   UTID_REG,
+
+   //PART1: Vertex Result Registers: Used to write the vertex shading stage results
+   VERT_ATTRIB0,
+   VERT_ATTRIB1,
+   VERT_ATTRIB2,
+   VERT_ATTRIB3,
+   VERT_OUT0,
+   VERT_OUT1,
+   VERT_OUT2,
+   VERT_OUT3,
+   VERT_OUT4,
+   VERTEX_ACTIVE,
+           
+   //PART2: Fragment Input Registers: Used to read the fragment input attribs
+   SHADER_IN0,
+   SHADER_IN1,
+   SHADER_IN2,
+   SHADER_IN3,
+   SHADER_COLOR0,
+   SHADER_CONST00,
+   SHADER_CONST01,
+   SHADER_CONST02,
+   SHADER_CONST03,
+   SHADER_CONST04,
+   SHADER_CONST05,
+   SHADER_CONST06,
+   SHADER_CONST07,
+   SHADER_CONST08,
+   SHADER_CONST09,
+   SHADER_CONST10,
+   SHADER_CONST11,
+   SHADER_CONST12,
+   FRAGMENT_ACTIVE,
+   FQUAD_ACTIVE,
+   SKIP_DEPTH_TEST,
+   
+   //PART3: other
+   RB_WIDTH, //the width of the render buffer used to calculate the written to address
+   RB_SIZE   //render buffer size in bytes
 };
 enum wmma_type {
   LOAD_A,

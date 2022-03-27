@@ -33,9 +33,9 @@ DEBUG?=0
 TRACE?=1
 
 include ../version_detection.mk
-
 CXXFLAGS = -Wall -DDEBUG
 CXXFLAGS += -DCUDART_VERSION=$(CUDART_VERSION)
+include /home/pan251/accel-sim-framework/gpu-simulator/gpgpu-sim/src/graphics/Makefile.include
 
 ifeq ($(GNUC_CPP0X), 1)
     CXXFLAGS += -std=c++0x

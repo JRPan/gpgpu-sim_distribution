@@ -246,6 +246,7 @@ void warp_inst_t::set_active(const active_mask_t &active) {
         m_per_scalar_thread[i].callback.function = NULL;
         m_per_scalar_thread[i].callback.instruction = NULL;
         m_per_scalar_thread[i].callback.thread = NULL;
+        m_per_scalar_thread[i].z_callback.reset(); 
       }
     }
   }
@@ -264,6 +265,23 @@ void warp_inst_t::do_atomic(const active_mask_t &access_mask, bool forceDo) {
       if (cb.thread) cb.function(cb.instruction, cb.thread);
     }
   }
+}
+
+active_mask_t warp_inst_t::do_zrop(const active_mask_t &access_mask,
+                                   bool forceDo) {
+  assert(m_isatomic && (!m_empty || forceDo));
+  active_mask_t outcome_mask;
+  outcome_mask.reset();
+  for (unsigned i = 0; i < m_config->warp_size; i++) {
+    if (access_mask.test(i)) {
+      zrop_callback_t &cb = m_per_scalar_thread[i].z_callback;
+      if (cb.function)
+        outcome_mask[i] = cb.function(
+            cb.instruction, cb.thread, cb.depth, cb.color,
+            cb.address);  // ZZZZ:HACK - Assume one word for callback
+    }
+  }
+  return outcome_mask;
 }
 
 void warp_inst_t::broadcast_barrier_reduction(
@@ -335,6 +353,7 @@ void warp_inst_t::generate_mem_accesses() {
         for (unsigned thread = subwarp * subwarp_size;
              thread < (subwarp + 1) * subwarp_size; thread++) {
           if (!active(thread)) continue;
+          assert(thread<m_config->warp_size);
           new_addr_type addr = m_per_scalar_thread[thread].memreqaddr[0];
           // FIXME: deferred allocation of shared memory should not accumulate
           // across kernel launches assert( addr < m_config->gpgpu_shmem_size );
@@ -445,12 +464,31 @@ void warp_inst_t::generate_mem_accesses() {
     std::map<new_addr_type, active_mask_t>
         accesses;  // block address -> set of thread offsets in warp
     std::map<new_addr_type, active_mask_t>::iterator a;
+    assert(m_per_scalar_thread_valid);
+    static FILE *textureFile = NULL;
+    if (m_config->gpgpu_debug_texture_accesses and !textureFile) {
+      textureFile = fopen("textures_acc", "w");
+    }
+    if (textureFile and space.get_type() == tex_space) {
+      fprintf(textureFile, "warp id=%d\n", m_warp_id);
+    }
     for (unsigned thread = 0; thread < m_config->warp_size; thread++) {
       if (!active(thread)) continue;
+
+      if (textureFile and space.get_type() == tex_space)
+        fprintf(textureFile, "thread %d accesses:", thread);
+      for (unsigned req = 0; req < m_per_scalar_thread[thread].memreqsCount;
+           req++) {
+        new_addr_type addr = m_per_scalar_thread[thread].memreqaddr[req];
+        new_addr_type block_address =
+            line_size_based_tag_func(addr, cache_block_size);
+        accesses[block_address].set(thread);
+        if (textureFile and space.get_type() == tex_space)
+          fprintf(textureFile, "%llx,", addr);
+      }
       new_addr_type addr = m_per_scalar_thread[thread].memreqaddr[0];
       new_addr_type block_address =
           line_size_based_tag_func(addr, cache_block_size);
-      accesses[block_address].set(thread);
       unsigned idx = addr - block_address;
       for (unsigned i = 0; i < data_size; i++) byte_mask.set(idx + i);
     }
@@ -458,6 +496,7 @@ void warp_inst_t::generate_mem_accesses() {
       m_accessq.push_back(mem_access_t(
           access_type, a->first, cache_block_size, is_write, a->second,
           byte_mask, mem_access_sector_mask_t(), m_config->gpgpu_ctx));
+          if(space.get_type()==tex_space and m_config->gpgpu_debug_texture_accesses){fprintf(textureFile, "requesting block %llx\n",a->first);  }
   }
 
   if (space.get_type() == global_space) {
@@ -509,6 +548,7 @@ void warp_inst_t::memory_coalescing_arch(bool is_write,
     for (unsigned thread = subwarp * subwarp_size;
          thread < subwarp_size * (subwarp + 1); thread++) {
       if (!active(thread)) continue;
+      assert(thread < m_config->warp_size);
 
       unsigned data_size_coales = data_size;
       unsigned num_accesses = 1;
@@ -519,6 +559,7 @@ void warp_inst_t::memory_coalescing_arch(bool is_write,
         if (data_size >= 4) {
           data_size_coales = 4;
           num_accesses = data_size / 4;
+          assert(num_accesses == m_per_scalar_thread[thread].memreqsCount);
         }
         // Otherwise keep the same data_size for sub-4B access to local memory
       }
@@ -626,6 +667,7 @@ void warp_inst_t::memory_coalescing_arch_atomic(bool is_write,
     for (unsigned thread = subwarp * subwarp_size;
          thread < subwarp_size * (subwarp + 1); thread++) {
       if (!active(thread)) continue;
+      assert(thread < m_config->warp_size);
 
       new_addr_type addr = m_per_scalar_thread[thread].memreqaddr[0];
       new_addr_type block_address =
@@ -773,6 +815,8 @@ kernel_info_t::kernel_info_t(dim3 gridDim, dim3 blockDim,
       num_blocks() * entry->gpgpu_ctx->device_runtime->g_TB_launch_latency;
 
   cache_config_set = false;
+  m_isGraphicsKernel = false;
+  m_drawCallDone = false;
 }
 
 /*A snapshot of the texture mappings needs to be stored in the kernel's info as
@@ -1190,6 +1234,17 @@ void core_t::execute_warp_inst_t(warp_inst_t &inst, unsigned warpId) {
       checkExecutionStatusAndUpdate(inst, t, tid);
     }
   }
+}
+
+void core_t::writeRegister(const warp_inst_t &inst, unsigned warpSize, unsigned lane_id, char *data) {
+    assert(inst.active(lane_id));
+    
+    //tex and ztest operations are functionally executed in tex_impl
+    //TODO: move tex space filtering and writebacks to here 
+    if(inst.space.get_type() == tex_space) return; 
+    
+    int warpId = inst.warp_id();
+    m_thread[warpSize*warpId+lane_id]->writeRegister(inst, lane_id, data);
 }
 
 bool core_t::ptx_thread_done(unsigned hw_thread_id) const {

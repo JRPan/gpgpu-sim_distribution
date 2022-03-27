@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+include /home/pan251/accel-sim-framework/gpu-simulator/gpgpu-sim/src/graphics/Makefile.include
 default: libgpgpu_ptx_sim.a 
  
 INTEL=0
@@ -48,6 +49,9 @@ ifeq ($(DEBUG),1)
 endif
 OPT += -I$(CUDA_INSTALL_PATH)/include  -I$(OUTPUT_DIR)/ -I. -I$(SIM_OBJ_FILES_DIR)
 OPT += -fPIC 
+OPT += -I$(GPGPUSIM_MESA_ROOT)/mesa/src/mesa
+OPT += -I$(GPGPUSIM_MESA_ROOT)/mesa/src/mapi
+OPT += $(CXXFLAGS)
 
 ifeq ($(TRACE),1)
 	OPT += -DTRACING_ON=1

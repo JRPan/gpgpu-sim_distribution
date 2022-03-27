@@ -877,6 +877,7 @@ class cache_config {
       m_set_index_function;  // Hash, linear, or custom set index function
 
   friend class tag_array;
+  friend class z_tag_array;
   friend class baseline_cache;
   friend class read_only_cache;
   friend class tex_cache;
@@ -1267,6 +1268,12 @@ class baseline_cache : public cache_t {
     assert(config.m_mshr_type == ASSOC || config.m_mshr_type == SECTOR_ASSOC);
     m_memport = memport;
     m_miss_queue_status = status;
+    m_C_access = 0;
+    m_C_miss = 0;
+    m_Z_WB_access = 0;
+    m_Z_WB_miss = 0;
+    m_Z_read_access = 0;
+    m_Z_read_miss = 0;
   }
 
   virtual ~baseline_cache() { delete m_tag_array; }
@@ -1297,6 +1304,10 @@ class baseline_cache : public cache_t {
   void flush() { m_tag_array->flush(); }
   void invalidate() { m_tag_array->invalidate(); }
   void print(FILE *fp, unsigned &accesses, unsigned &misses) const;
+  void print(FILE *fp, unsigned &accesses, unsigned &misses,
+             unsigned &C_accesses, unsigned &C_misses, unsigned &Z_WB_accesses,
+             unsigned &Z_WB_misses, unsigned &Z_read_accesses,
+             unsigned &Z_read_misses) const;
   void display_state(FILE *fp) const;
 
   // Stat collection
@@ -1384,6 +1395,13 @@ class baseline_cache : public cache_t {
   typedef std::map<mem_fetch *, extra_mf_fields> extra_mf_fields_lookup;
 
   extra_mf_fields_lookup m_extra_mf_fields;
+  // z and c requests
+  unsigned m_C_access;
+  unsigned m_C_miss;
+  unsigned m_Z_WB_access;
+  unsigned m_Z_WB_miss;
+  unsigned m_Z_read_access;
+  unsigned m_Z_read_miss;
 
   cache_stats m_stats;
 
@@ -1731,6 +1749,7 @@ class tex_cache : public cache_t {
                                    unsigned time,
                                    std::list<cache_event> &events);
   void cycle();
+  void read_ready_lines();
   /// Place returning cache block into reorder buffer
   void fill(mem_fetch *mf, unsigned time);
   /// Are any (accepted) accesses that had to wait for memory now ready? (does
@@ -1740,6 +1759,7 @@ class tex_cache : public cache_t {
   /// "MISS")
   mem_fetch *next_access() { return m_result_fifo.pop(); }
   void display_state(FILE *fp) const;
+  void print(FILE *fp, unsigned &accesses, unsigned &misses) const;
 
   // accessors for cache bandwidth availability - stubs for now
   bool data_port_free() const { return true; }

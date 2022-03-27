@@ -1415,7 +1415,11 @@ ptx_instruction::ptx_instruction(
   }
   m_scalar_type = scalar_type;
   m_space_spec = space_spec;
-  if ((opcode == ST_OP || opcode == LD_OP || opcode == LDU_OP) &&
+  if ((opcode == ST_OP || opcode == STP_OP || 
+        opcode == STV_OP || opcode == ZWRITE_OP ||
+        opcode == LD_OP || opcode == LDU_OP || 
+        opcode == LDV_OP || opcode == ZTEST_OP || 
+        opcode == BLEND_OP) &&
       (space_spec == undefined_space)) {
     m_space_spec = generic_space;
   }
@@ -1450,6 +1454,18 @@ ptx_instruction::ptx_instruction(
     if (fname == "cudaGetParameterBufferV2") m_is_cdp = 2;
     if (fname == "cudaLaunchDeviceV2") m_is_cdp = 4;
   }
+
+  if(opcode == ZTEST_OP or opcode == ZWRITE_OP){
+      set_z();
+   }
+
+   if(opcode == BLEND_OP){
+      set_blend();
+   }
+
+   if(opcode == STV_OP){
+      set_vert();
+   }
 }
 
 void ptx_instruction::print_insn() const {

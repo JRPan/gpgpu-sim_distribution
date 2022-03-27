@@ -96,6 +96,9 @@ endif
 .PHONY: check_setup_environment check_power
 gpgpusim: check_setup_environment check_power makedirs $(TARGETS)
 
+graphics:
+	$(MAKE) -C ./src/graphics 
+
 
 check_setup_environment:
 	 @if [ ! -n "$(GPGPUSIM_ROOT)" -o ! -n "$(CUDA_INSTALL_PATH)" -o ! -n "$(GPGPUSIM_SETUP_ENVIRONMENT_WAS_RUN)" ]; then \
@@ -148,6 +151,7 @@ $(SIM_LIB_DIR)/libcudart.so: makedirs $(LIBS) cudalib
 			$(SIM_OBJ_FILES_DIR)/cuda-sim/*.o \
 			$(SIM_OBJ_FILES_DIR)/cuda-sim/decuda_pred_table/*.o \
 			$(SIM_OBJ_FILES_DIR)/gpgpu-sim/*.o \
+			$(SIM_OBJ_FILES_DIR)/graphics/*.o \
 			$(SIM_OBJ_FILES_DIR)/$(INTERSIM)/*.o \
 			$(SIM_OBJ_FILES_DIR)/*.o -lm -lz -lGL -pthread \
 			$(MCPAT) \
@@ -213,7 +217,7 @@ ifneq ($(DEBUG),1)
 endif
 TFLAGS += -g3 -fPIC
 
-gpgpu-sim_uarch: makedirs cuda-sim
+gpgpu-sim_uarch: makedirs cuda-sim graphics
 	$(MAKE) -C ./src/gpgpu-sim/ depend
 	$(MAKE) -C ./src/gpgpu-sim/
 
@@ -239,6 +243,7 @@ makedirs:
 	if [ ! -d $(SIM_OBJ_FILES_DIR)/cuda-sim ]; then mkdir -p $(SIM_OBJ_FILES_DIR)/cuda-sim; fi;
 	if [ ! -d $(SIM_OBJ_FILES_DIR)/cuda-sim/decuda_pred_table ]; then mkdir -p $(SIM_OBJ_FILES_DIR)/cuda-sim/decuda_pred_table; fi;
 	if [ ! -d $(SIM_OBJ_FILES_DIR)/gpgpu-sim ]; then mkdir -p $(SIM_OBJ_FILES_DIR)/gpgpu-sim; fi;
+	if [ ! -d $(SIM_OBJ_FILES_DIR)/graphics ]; then mkdir -p $(SIM_OBJ_FILES_DIR)/graphics; fi;
 	if [ ! -d $(SIM_OBJ_FILES_DIR)/libopencl ]; then mkdir -p $(SIM_OBJ_FILES_DIR)/libopencl; fi;
 	if [ ! -d $(SIM_OBJ_FILES_DIR)/libopencl/bin ]; then mkdir -p $(SIM_OBJ_FILES_DIR)/libopencl/bin; fi;
 	if [ ! -d $(SIM_OBJ_FILES_DIR)/$(INTERSIM) ]; then mkdir -p $(SIM_OBJ_FILES_DIR)/$(INTERSIM); fi;

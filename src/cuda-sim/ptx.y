@@ -584,6 +584,7 @@ operand: IDENTIFIER  { recognizer->add_scalar_operand( $1 ); }
 	| MINUS IDENTIFIER  { recognizer->add_scalar_operand( $2 ); recognizer->change_operand_neg(); }
 	| memory_operand
 	| literal_operand
+	| MINUS builtin_operand { recognizer->change_operand_neg(); }
 	| builtin_operand
 	| vector_operand
 	| MINUS vector_operand { recognizer->change_operand_neg(); }

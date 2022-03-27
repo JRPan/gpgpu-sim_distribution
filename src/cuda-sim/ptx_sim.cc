@@ -158,7 +158,7 @@ ptx_thread_info::ptx_thread_info(kernel_info_t &kernel) : m_kernel(kernel) {
   m_cycle_done = 0;
   m_PC = 0;
   m_icount = 0;
-  m_last_effective_address = 0;
+  m_last_effective_address.set(0);
   m_last_memory_space = undefined_space;
   m_branch_taken = 0;
   m_shared_mem = NULL;
@@ -184,6 +184,7 @@ ptx_thread_info::ptx_thread_info(kernel_info_t &kernel) : m_kernel(kernel) {
   m_local_mem_stack_pointer = 0;
   m_gpu = NULL;
   m_last_set_operand_value = ptx_reg_t();
+  m_builtin_dst.valid = false;
 }
 
 const ptx_version &ptx_thread_info::get_ptx_version() const {
@@ -298,6 +299,27 @@ unsigned ptx_thread_info::get_builtin(int builtin_id, unsigned dim_mod) {
       break;
     case WARPSZ_REG:
       return m_core->get_warp_size();
+    case UTID_REG:
+      return get_uid_in_kernel();
+    case RB_WIDTH:
+      return readMESABufferWidth();
+    case RB_SIZE:
+      return readMESABufferSize();
+    case FRAGMENT_ACTIVE:
+      return readShaderInputData(this, builtin_id, dim_mod).u32;
+    case FQUAD_ACTIVE:
+      return readShaderInputData(this, builtin_id, dim_mod).u32;
+    case SKIP_DEPTH_TEST:
+      return readShaderInputData(this, builtin_id, dim_mod).u32;
+    case VERTEX_ACTIVE:
+      return readShaderInputData(this, builtin_id, dim_mod).u32;
+    case VERT_ATTRIB0:
+    case VERT_ATTRIB1:
+    case VERT_ATTRIB2:
+    case VERT_ATTRIB3:
+      return readShaderInputData(this, builtin_id, dim_mod).u32;
+    // default:
+    //   return readShaderInputData(this, builtin_id, dim_mod).u32;
     default:
       assert(0);
   }
@@ -609,6 +631,14 @@ void ptx_thread_info::set_npc(const function_info *f) {
   m_NPC = f->get_start_PC();
   m_func_info = const_cast<function_info *>(f);
   m_symbol_table = m_func_info->get_symtab();
+}
+
+void ptx_thread_info::exitCore(){
+   //m_core is not used in case of functional simulation mode
+   printf("JR - ptx_sim.cc - exitCore - try not to use this\n");
+   fflush(stdout);
+   if(!m_functionalSimulationMode)
+      m_core->warp_exit(m_hw_wid);
 }
 
 void feature_not_implemented(const char *f) {

@@ -72,6 +72,7 @@ class mem_fetch {
     }
   }
   void do_atomic();
+  active_mask_t do_zrop();
 
   void print(FILE *fp, bool print_inst = true) const;
 
@@ -99,6 +100,7 @@ class mem_fetch {
   bool isconst() const;
   enum mf_type get_type() const { return m_type; }
   bool isatomic() const;
+  void set_atomic(bool atomic);
 
   void set_return_timestamp(unsigned t) { m_timestamp2 = t; }
   void set_icnt_receive_time(unsigned t) { m_icnt_receive_time = t; }

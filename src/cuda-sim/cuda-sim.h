@@ -46,6 +46,7 @@ extern const char *g_gpgpusim_version_string;
 extern int g_debug_execution;
 
 extern void print_splash();
+C_DATA_TYPE blendU32(C_DATA_TYPE color_src, C_DATA_TYPE color_dst);
 
 extern void ptxinfo_opencl_addinfo(
     std::map<std::string, function_info *> &kernels);

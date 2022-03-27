@@ -37,6 +37,7 @@
 
 #include "booksim.hpp"
 #include "module.hpp"
+using namespace std;
 
 Module::Module( Module *parent, const string& name )
 {

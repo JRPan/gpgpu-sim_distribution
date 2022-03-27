@@ -77,6 +77,8 @@ mem_fetch *shader_core_mem_fetch_allocator::alloc(
 }
 /////////////////////////////////////////////////////////////////////////////
 
+unsigned tc_engine_t::tc_engine_id_count=0;
+
 std::list<unsigned> shader_core_ctx::get_regs_written(const inst_t &fvt) const {
   std::list<unsigned> result;
   for (unsigned op = 0; op < MAX_REG_OPERANDS; op++) {
@@ -474,7 +476,12 @@ shader_core_ctx::shader_core_ctx(class gpgpu_sim *gpu,
       m_barriers(this, config->max_warps_per_shader, config->max_cta_per_core,
                  config->max_barriers_per_cta, config->warp_size),
       m_active_warps(0),
-      m_dynamic_warp_id(0) {
+      m_dynamic_warp_id(0),
+      m_max_prim_pipe_size(
+          gpu->get_config().gpu_graphics_configs.core_prim_pipe_size),
+      m_prim_delay(gpu->get_config().gpu_graphics_configs.core_prim_delay),
+      m_prim_warps(gpu->get_config().gpu_graphics_configs.core_prim_warps) {
+  // m_kernel_finishing = false;
   m_cluster = cluster;
   m_config = config;
   m_memory_config = mem_config;
@@ -484,6 +491,8 @@ shader_core_ctx::shader_core_ctx(class gpgpu_sim *gpu,
 
   m_sid = shader_id;
   m_tpc = tpc_id;
+  m_pending_prim_batches = 0;
+  m_prim_batch_ready = false;
 
   m_last_inst_gpu_sim_cycle = 0;
   m_last_inst_gpu_tot_sim_cycle = 0;
@@ -626,6 +635,7 @@ void shader_core_stats::print(FILE *fout) const {
   fprintf(fout, "gpgpu_n_mem_write_global = %d\n", gpgpu_n_mem_write_global);
   fprintf(fout, "gpgpu_n_mem_texture = %d\n", gpgpu_n_mem_texture);
   fprintf(fout, "gpgpu_n_mem_const = %d\n", gpgpu_n_mem_const);
+  fprintf(fout,"gpgpu_n_mem_z_write = %d\n",gpgpu_n_mem_z_write);
 
   fprintf(fout, "gpgpu_n_load_insn  = %d\n", gpgpu_n_load_insn);
   fprintf(fout, "gpgpu_n_store_insn = %d\n", gpgpu_n_store_insn);
@@ -1015,10 +1025,19 @@ void shader_core_ctx::fetch() {
 void exec_shader_core_ctx::func_exec_inst(warp_inst_t &inst) {
   execute_warp_inst_t(inst);
   if (inst.is_load() || inst.is_store()) {
+    if (inst.space.get_type() == tex_space &&
+        m_config->gpgpu_debug_texture_accesses)
+      printf("In cluster %d, core %d cta %llu\n", m_cluster->get_cluster_id(),
+             m_sid, m_thread[inst.warp_id() * inst.warp_size()]->get_cta_uid());
     inst.generate_mem_accesses();
     // inst.print_m_accessq();
   }
 }
+
+// void shader_core_ctx::warp_reaches_barrier(warp_inst_t &inst) {
+//   m_barriers.warp_reaches_barrier(m_warp[inst.warp_id()].get_cta_id(),
+//                                   inst.warp_id());
+// }
 
 void shader_core_ctx::issue_warp(register_set &pipe_reg_set,
                                  const warp_inst_t *next_inst,
@@ -1858,6 +1877,91 @@ void shader_core_ctx::writeback() {
   }
 }
 
+void shader_core_ctx::process_prims() {
+  for (auto &prim : m_prim_pipe) {
+    if (prim.cycles > 0) prim.cycles--;
+  }
+  if (m_prim_batch_ready) {
+    if (m_cluster->getGraphicsPipeline()->add_prim_batch(m_curr_prim_batch)) {
+      m_prim_batch_ready = false;
+      m_curr_prim_batch.clear();
+    } else {
+      // can't process the next batch until
+      // the current one is processed
+      return;
+    }
+  }
+  if (!m_prim_pipe.empty()) {
+    if (m_prim_pipe.front().cycles == 0) {
+      // add primitive to current batch
+      m_curr_prim_batch.push_back(m_prim_pipe.front().prim_id);
+      if (m_prim_pipe.front().last_in_batch) {
+        assert(m_pending_prim_batches > 0);
+        m_pending_prim_batches--;
+        m_prim_batch_ready = true;
+      }
+      m_prim_pipe.pop_front();
+    }
+  }
+}
+
+// checks if primitives can be generated
+// from done vertex warps
+void shader_core_ctx::add_prims() {
+  if (m_pending_prim_batches >= m_max_prim_pipe_size) return;
+  if (!m_vert_warps.empty()) {
+    if (m_vert_warps.front().warpTids.empty()) return;
+    unsigned primId = g_renderData.getPrimId(&m_vert_warps.front().warpTids,
+                                             m_vert_warps.front().vert_count);
+    if (m_vert_warps.front().warpTids.empty()) {
+      // if last prim in this warp mark it as the last one in
+      // the batch
+      m_prim_pipe.push_back(primPipe_t(primId, m_prim_delay, true));
+      m_pending_prim_batches++;
+      m_vert_warps.pop_front();
+    } else {
+      m_prim_pipe.push_back(primPipe_t(primId, m_prim_delay, false));
+    }
+  }
+}
+
+// called upon vertex writback to check
+// if there is a space to hold new set
+// of vertex data for primitive generation
+bool shader_core_ctx::can_vert_write(unsigned warp_id,
+                                     const warp_inst_t &inst) {
+  for (auto &vw : m_vert_warps) {
+    // we already reserved space for this warp
+    if (vw.warp_id == warp_id) return true;
+  }
+  if (m_vert_warps.size() >= m_prim_warps) return false;
+  m_vert_warps.push_back(vert_warp_t(warp_id, inst.active_count()));
+  return true;
+}
+
+void shader_core_ctx::signal_attrib_done(unsigned warp_id,
+                                         unsigned activeCount) {
+  for (auto &vw : m_vert_warps) {
+    // we already reserved space for this warp
+    if (vw.warp_id == warp_id) {
+      vw.attrib_count++;
+      if (vw.attrib_count == g_renderData.vShaderAttribWrites()) {
+        unsigned start_tid = warp_id * g_renderData.getUniqueThreadsPerWarp();
+        activeCount =
+            std::min(activeCount, g_renderData.getUniqueThreadsPerWarp());
+        for (unsigned i = start_tid; i < (start_tid + activeCount); i++) {
+          // populate the list with tid corresponding to the newly
+          // done warp
+          vw.warpTids.push_back(i);
+        }
+      }
+      return;
+    }
+  }
+  printf("Error: vert warp %d doesn't exist!\n");
+  abort();
+}
+
 bool ldst_unit::shared_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,
                              mem_stage_access_type &fail_type) {
   if (inst.space.get_type() != shared_space) return true;
@@ -2122,7 +2226,8 @@ bool ldst_unit::memory_cycle(warp_inst_t &inst,
                              mem_stage_access_type &access_type) {
   if (inst.empty() || ((inst.space.get_type() != global_space) &&
                        (inst.space.get_type() != local_space) &&
-                       (inst.space.get_type() != param_space_local)))
+                       (inst.space.get_type() != param_space_local) &&
+                       (inst.space.get_type() != tex_space)))
     return true;
   if (inst.active_count() == 0) return true;
   if (inst.accessq_empty()) return true;
@@ -2452,8 +2557,10 @@ void ldst_unit::init(mem_fetch_interface *icnt,
 #define STRSIZE 1024
   char L1T_name[STRSIZE];
   char L1C_name[STRSIZE];
+  char L1D_name[STRSIZE];
   snprintf(L1T_name, STRSIZE, "L1T_%03d", m_sid);
   snprintf(L1C_name, STRSIZE, "L1C_%03d", m_sid);
+  snprintf(L1D_name, STRSIZE, "L1D_%03d", m_sid);
   m_L1T = new tex_cache(L1T_name, m_config->m_L1T_config, m_sid,
                         get_shader_texture_cache_id(), icnt, IN_L1T_MISS_QUEUE,
                         IN_SHADER_L1T_ROB);
@@ -3004,17 +3111,35 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
 
 void gpgpu_sim::shader_print_l1_miss_stat(FILE *fout) const {
   unsigned total_d1_misses = 0, total_d1_accesses = 0;
+  unsigned total_l1c_misses = 0, total_l1c_accesses = 0;
+  unsigned total_l1t_misses = 0, total_l1t_accesses = 0;
   for (unsigned i = 0; i < m_shader_config->n_simt_clusters; ++i) {
-    unsigned custer_d1_misses = 0, cluster_d1_accesses = 0;
-    m_cluster[i]->print_cache_stats(fout, cluster_d1_accesses,
-                                    custer_d1_misses);
-    total_d1_misses += custer_d1_misses;
+    unsigned cluster_d1_misses = 0, cluster_d1_accesses = 0;
+    unsigned cluster_l1c_misses = 0, cluster_l1c_accesses = 0;
+    unsigned cluster_l1t_misses = 0, cluster_l1t_accesses = 0;
+    m_cluster[i]->print_cache_stats(
+        fout, cluster_d1_accesses, cluster_d1_misses, cluster_l1c_accesses,
+        cluster_l1c_misses, cluster_l1t_accesses, cluster_l1t_misses);
+    total_d1_misses += cluster_d1_misses;
     total_d1_accesses += cluster_d1_accesses;
+    total_l1c_misses += cluster_l1c_misses;
+    total_l1c_accesses += cluster_l1c_accesses;
+    total_l1t_misses += cluster_l1t_misses;
+    total_l1t_accesses += cluster_l1t_accesses;
   }
   fprintf(fout, "total_dl1_misses=%d\n", total_d1_misses);
   fprintf(fout, "total_dl1_accesses=%d\n", total_d1_accesses);
   fprintf(fout, "total_dl1_miss_rate= %f\n",
           (float)total_d1_misses / (float)total_d1_accesses);
+  fprintf(fout, "total_l1c_misses=%d\n", total_l1c_misses);
+  fprintf(fout, "total_l1c_accesses=%d\n", total_l1c_accesses);
+  fprintf(fout, "total_l1c_miss_rate= %f\n",
+          (float)total_l1c_misses / (float)total_l1c_accesses);
+
+  fprintf(fout, "total_l1t_misses=%d\n", total_l1t_misses);
+  fprintf(fout, "total_l1t_accesses=%d\n", total_l1t_accesses);
+  fprintf(fout, "total_l1t_miss_rate= %f\n",
+          (float)total_l1t_misses / (float)total_l1t_accesses);
   /*
   fprintf(fout, "THD_INSN_AC: ");
   for (unsigned i=0; i<m_shader_config->n_thread_per_shader; i++)
@@ -3470,6 +3595,11 @@ void shader_core_ctx::cycle() {
 
   m_stats->shader_cycles[m_sid]++;
   writeback();
+  // graphics pipeline calls**
+  // should be invoked after cores writeback
+  process_prims();
+  add_prims();
+  //**
   execute();
   read_operands();
   issue();
@@ -3846,6 +3976,15 @@ void shader_core_ctx::store_ack(class mem_fetch *mf) {
 void shader_core_ctx::print_cache_stats(FILE *fp, unsigned &dl1_accesses,
                                         unsigned &dl1_misses) {
   m_ldst_unit->print_cache_stats(fp, dl1_accesses, dl1_misses);
+  // m_ldst_unit->print_cache_stats(fp, dl1_accesses, dl1_misses, l1c_accesses,
+  //                               l1c_misses, l1t_accesses, l1t_misses);
+}
+
+void shader_core_ctx::print_cache_stats(FILE *fp, unsigned &dl1_accesses, unsigned &dl1_misses,
+                       unsigned &l1c_accesses, unsigned &l1c_misses,
+                       unsigned &l1t_accesses, unsigned &l1t_misses) {
+  m_ldst_unit->print_cache_stats(fp, dl1_accesses, dl1_misses, l1c_accesses,
+                                 l1c_misses, l1t_accesses, l1t_misses);
 }
 
 void shader_core_ctx::get_cache_stats(cache_stats &cs) {
@@ -4265,9 +4404,17 @@ simt_core_cluster::simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
   m_stats = stats;
   m_memory_stats = mstats;
   m_mem_config = mem_config;
+  const gpu_graphics_config &gconfigs = gpu->get_config().gpu_graphics_configs;
+  m_graphics_pipe = new graphics_simt_pipeline(
+      this, cluster_id, gconfigs.setup_delay, gconfigs.setup_q_len,
+      gconfigs.coarse_tiles, gconfigs.fine_tiles, gconfigs.hiz_tiles,
+      gconfigs.tc_engines, gconfigs.tc_bins, gconfigs.tc_h, gconfigs.tc_w,
+      gconfigs.raster_tile_H, gconfigs.raster_tile_W, gconfigs.tc_thresh);
 }
 
 void simt_core_cluster::core_cycle() {
+  m_graphics_pipe->cycle();
+
   for (std::list<unsigned>::iterator it = m_core_sim_order.begin();
        it != m_core_sim_order.end(); ++it) {
     m_core[*it]->cycle();
@@ -4292,6 +4439,7 @@ unsigned simt_core_cluster::get_not_completed() const {
   unsigned not_completed = 0;
   for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; i++)
     not_completed += m_core[i]->get_not_completed();
+  not_completed += m_graphics_pipe->get_not_completed();
   return not_completed;
 }
 
@@ -4353,6 +4501,7 @@ unsigned simt_core_cluster::issue_block2core() {
     }
 
     if (m_gpu->kernel_more_cta_left(kernel) &&
+        kernel->canGetNextGraphicsBlock(m_core[core]->get_sid()) &&
         //            (m_core[core]->get_n_active_cta() <
         //            m_config->max_cta(*kernel)) ) {
         m_core[core]->can_issue_1block(*kernel)) {
@@ -4362,6 +4511,14 @@ unsigned simt_core_cluster::issue_block2core() {
       break;
     }
   }
+  // for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; i++) {
+  //   kernel_info_t *kernel = m_core[i]->get_kernel();
+  //   if (kernel && kernel->no_more_ctas_to_run() && kernel->isDrawCallDone() &&
+  //       (m_core[i]->get_n_active_cta() == 0) &&
+  //       !m_core[i]->kernel_finish_issued()) {
+  //     m_core[i]->start_kernel_finish();
+  //   }
+  // }
   return num_blocks_issued;
 }
 
@@ -4508,9 +4665,14 @@ void simt_core_cluster::display_pipeline(unsigned sid, FILE *fout,
 }
 
 void simt_core_cluster::print_cache_stats(FILE *fp, unsigned &dl1_accesses,
-                                          unsigned &dl1_misses) const {
+                                          unsigned &dl1_misses,
+                                          unsigned &l1c_accesses,
+                                          unsigned &l1c_misses,
+                                          unsigned &l1t_accesses,
+                                          unsigned &l1t_misses) const {
   for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; ++i) {
-    m_core[i]->print_cache_stats(fp, dl1_accesses, dl1_misses);
+    m_core[i]->print_cache_stats(fp, dl1_accesses, dl1_misses, l1c_accesses,
+                                 l1c_misses, l1t_accesses, l1t_misses);
   }
 }
 
@@ -4523,6 +4685,10 @@ void simt_core_cluster::get_icnt_stats(long &n_simt_to_mem,
   }
   n_simt_to_mem = simt_to_mem;
   n_mem_to_simt = mem_to_simt;
+}
+
+void simt_core_cluster::print_graphics_stats(FILE *ofile) {
+  m_graphics_pipe->print_stats(ofile);
 }
 
 void simt_core_cluster::get_cache_stats(cache_stats &cs) const {

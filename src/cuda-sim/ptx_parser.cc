@@ -59,6 +59,62 @@ void ptx_recognizer::set_ptx_warp_size(const struct core_config *warp_size) {
 
 static std::map<unsigned, std::string> g_ptx_token_decode;
 
+// the program intermediate representation...
+static symbol_table *g_global_allfiles_symbol_table = NULL;
+static symbol_table *g_global_symbol_table = NULL;
+std::map<std::string, symbol_table *> g_sym_name_to_symbol_table;
+static symbol_table *g_current_symbol_table = NULL;
+static std::list<ptx_instruction *> g_instructions;
+static symbol *g_last_symbol = NULL;
+
+int g_error_detected = 0;
+
+// type specifier stuff:
+memory_space_t g_space_spec = undefined_space;
+memory_space_t g_ptr_spec = undefined_space;
+int g_scalar_type_spec = -1;
+int g_vector_spec = -1;
+int g_alignment_spec = -1;
+int g_extern_spec = 0;
+
+// variable declaration stuff:
+type_info *g_var_type = NULL;
+
+// instruction definition stuff:
+const symbol *g_pred;
+int g_neg_pred;
+int g_pred_mod;
+symbol *g_label;
+int g_opcode = -1;
+std::list<operand_info> g_operands;
+std::list<int> g_options;
+std::list<int> g_scalar_type;
+
+bool is_swizzle(char c){
+   switch(c){
+      case 'x':
+      case 'y':
+      case 'z':
+      case 'w':
+      return true;
+      default: return false;
+   }
+   return false;
+}
+
+
+int get_swizzle_num(char c){
+   switch(c){
+      case 'x': return 0;
+      case 'y': return 1;
+      case 'z': return 2;
+      case 'w': return 3;
+      default: assert(0);
+   }
+   assert(0);
+   return -1;
+}
+
 const char *decode_token(int type) { return g_ptx_token_decode[type].c_str(); }
 
 void ptx_recognizer::read_parser_environment_variables() {
@@ -101,11 +157,23 @@ void ptx_recognizer::init_instruction_state() {
 
 symbol_table *gpgpu_context::init_parser(const char *ptx_filename) {
   g_filename = strdup(ptx_filename);
+  // if (useNewTables and g_global_allfiles_symbol_table) {
+  //   g_sym_name_to_symbol_table.clear();
+  //   // g_instructions.clear();
+  //   // g_inst_lookup.clear();
+  //   symbol *g_last_symbol = NULL;
+  //   delete g_global_allfiles_symbol_table;
+  //   g_global_symbol_table = g_current_symbol_table =
+  //       g_global_allfiles_symbol_table = NULL;
+  // }
   if (g_global_allfiles_symbol_table == NULL) {
     g_global_allfiles_symbol_table =
         new symbol_table("global_allfiles", 0, NULL, this);
     ptx_parser->g_global_symbol_table = ptx_parser->g_current_symbol_table =
         g_global_allfiles_symbol_table;
+  } else {
+    g_global_symbol_table = g_current_symbol_table =
+        new symbol_table("global", 0, g_global_allfiles_symbol_table, this);
   }
   /*else {
       g_global_symbol_table = g_current_symbol_table = new
@@ -383,6 +451,9 @@ void ptx_recognizer::add_identifier(const char *identifier, int array_dim,
       }
       if (strcmp(identifier, "%sp") == 0) {
         arch_regnum = 0;
+      }
+      if (is_swizzle(identifier[strlen(identifier) - 1])) {
+        arch_regnum = get_swizzle_num(identifier[strlen(identifier) - 1]);
       }
       g_last_symbol->set_regno(regnum, arch_regnum);
     } break;

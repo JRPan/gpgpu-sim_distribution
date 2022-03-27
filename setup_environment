@@ -1,4 +1,7 @@
 # see README before running this
+export GPGPUSIM_MESA_ROOT=/home/pan251/emerald/gem5-graphics
+export LIBPATH=:$LIBPATH:GPGPUSIM_MESA_ROOT/mesa/lib/gallium
+
 
 ps -p $$ | awk '/bash/ || / sh/ || /zsh/ {exit 1;}' && echo "WARNING ** source setup_environment must be run in a bash, zsh or sh shell; see README"
 

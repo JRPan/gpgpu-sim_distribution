@@ -143,6 +143,7 @@
 #include "../src/gpgpusim_entrypoint.h"
 #include "../src/stream_manager.h"
 #include "../src/abstract_hardware_model.h"
+#include "cuda_runtime_api.hh"
 
 #include <pthread.h>
 #include <semaphore.h>
@@ -571,7 +572,7 @@ __host__ cudaError_t CUDARTAPI cudaDeviceGetLimitInternal(
 }
 
 void **cudaRegisterFatBinaryInternal(void *fatCubin,
-                                     gpgpu_context *gpgpu_ctx = NULL) {
+                                     gpgpu_context *gpgpu_ctx) {
   gpgpu_context *ctx;
   if (gpgpu_ctx) {
     ctx = gpgpu_ctx;
@@ -753,7 +754,7 @@ void cudaRegisterFunctionInternal(void **fatCubinHandle, const char *hostFun,
                                   char *deviceFun, const char *deviceName,
                                   int thread_limit, uint3 *tid, uint3 *bid,
                                   dim3 *bDim, dim3 *gDim,
-                                  gpgpu_context *gpgpu_ctx = NULL) {
+                                  gpgpu_context *gpgpu_ctx) {
   gpgpu_context *ctx;
   if (gpgpu_ctx) {
     ctx = gpgpu_ctx;
@@ -817,7 +818,7 @@ void cudaRegisterVarInternal(
 
 cudaError_t cudaConfigureCallInternal(dim3 gridDim, dim3 blockDim,
                                       size_t sharedMem, cudaStream_t stream,
-                                      gpgpu_context *gpgpu_ctx = NULL) {
+                                      gpgpu_context *gpgpu_ctx) {
   gpgpu_context *ctx;
   if (gpgpu_ctx) {
     ctx = gpgpu_ctx;
@@ -888,7 +889,7 @@ cudaChooseDeviceInternal(int *device, const struct cudaDeviceProp *prop,
 
 cudaError_t cudaSetupArgumentInternal(const void *arg, size_t size,
                                       size_t offset,
-                                      gpgpu_context *gpgpu_ctx = NULL) {
+                                      gpgpu_context *gpgpu_ctx) {
   gpgpu_context *ctx;
   if (gpgpu_ctx) {
     ctx = gpgpu_ctx;
@@ -911,7 +912,7 @@ cudaError_t cudaSetupArgumentInternal(const void *arg, size_t size,
 }
 
 cudaError_t cudaLaunchInternal(const char *hostFun,
-                               gpgpu_context *gpgpu_ctx = NULL) {
+                               gpgpu_context *gpgpu_ctx) {
   gpgpu_context *ctx;
   if (gpgpu_ctx) {
     ctx = gpgpu_ctx;
@@ -1007,7 +1008,7 @@ cudaError_t cudaLaunchInternal(const char *hostFun,
 }
 
 cudaError_t cudaMallocInternal(void **devPtr, size_t size,
-                               gpgpu_context *gpgpu_ctx = NULL) {
+                               gpgpu_context *gpgpu_ctx) {
   gpgpu_context *ctx;
   if (gpgpu_ctx) {
     ctx = gpgpu_ctx;
@@ -1155,7 +1156,7 @@ __host__ cudaError_t CUDARTAPI cudaMallocArrayInternal(
 
 __host__ cudaError_t CUDARTAPI
 cudaMemcpyInternal(void *dst, const void *src, size_t count,
-                   enum cudaMemcpyKind kind, gpgpu_context *gpgpu_ctx = NULL) {
+                   enum cudaMemcpyKind kind, gpgpu_context *gpgpu_ctx) {
   gpgpu_context *ctx;
   if (gpgpu_ctx) {
     ctx = gpgpu_ctx;
@@ -1980,7 +1981,7 @@ __host__ cudaError_t CUDARTAPI cudaLaunchKernelInternal(
 }
 
 __host__ cudaError_t CUDARTAPI cudaStreamCreateInternal(
-    cudaStream_t *stream, gpgpu_context *gpgpu_ctx = NULL) {
+    cudaStream_t *stream, gpgpu_context *gpgpu_ctx) {
   gpgpu_context *ctx;
   if (gpgpu_ctx) {
     ctx = gpgpu_ctx;
@@ -2005,7 +2006,7 @@ __host__ cudaError_t CUDARTAPI cudaStreamCreateInternal(
 }
 
 __host__ cudaError_t CUDARTAPI cudaStreamDestroyInternal(
-    cudaStream_t stream, gpgpu_context *gpgpu_ctx = NULL) {
+    cudaStream_t stream, gpgpu_context *gpgpu_ctx) {
   gpgpu_context *ctx;
   if (gpgpu_ctx) {
     ctx = gpgpu_ctx;

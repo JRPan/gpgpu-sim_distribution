@@ -1094,7 +1094,8 @@ void baseline_cache::fill(mem_fetch *mf, unsigned time) {
     abort();
   bool has_atomic = false;
   m_mshrs.mark_ready(e->second.m_block_addr, has_atomic);
-  if (has_atomic) {
+  if (has_atomic && !(mf->get_access_type() == Z_ACCESS_TYPE &&
+                      mf->get_is_write() == false)) {
     assert(m_config.m_alloc_policy == ON_MISS);
     cache_block_t *block = m_tag_array->get_block(e->second.m_cache_index);
     if (!block->is_modified_line()) {
@@ -1119,6 +1120,27 @@ void baseline_cache::print(FILE *fp, unsigned &accesses,
                            unsigned &misses) const {
   fprintf(fp, "Cache %s:\t", m_name.c_str());
   m_tag_array->print(fp, accesses, misses);
+}
+
+void baseline_cache::print(FILE *fp, unsigned &accesses, unsigned &misses,
+                           unsigned &C_accesses, unsigned &C_misses,
+                           unsigned &Z_WB_accesses, unsigned &Z_WB_misses,
+                           unsigned &Z_read_accesses,
+                           unsigned &Z_read_misses) const {
+  fprintf(fp, "Cache %s:\t", m_name.c_str());
+  m_tag_array->print(fp, accesses, misses);
+  fprintf(fp, "\t\t(C values) Access = %d, Miss = %d (%.3g)\n", m_C_access,
+          m_C_miss, (float)m_C_miss / m_C_access);
+  fprintf(fp, "\t\t(Z_WB) Access = %d, Miss = %d (%.3g)\n", m_Z_WB_access,
+          m_Z_WB_miss, (float)m_Z_WB_miss / m_Z_WB_access);
+  fprintf(fp, "\t\t((Z-read) Access = %d, Miss = %d (%.3g)\n", m_Z_read_access,
+          m_Z_read_miss, (float)m_Z_read_miss / m_Z_read_access);
+  C_accesses += m_C_access;
+  C_misses += m_C_miss;
+  Z_WB_accesses += m_Z_WB_access;
+  Z_WB_misses += m_Z_WB_miss;
+  Z_read_accesses += m_Z_read_access;
+  Z_read_misses += m_Z_read_miss;
 }
 
 void baseline_cache::display_state(FILE *fp) const {
@@ -1288,8 +1310,9 @@ cache_request_status data_cache::wr_hit_we(new_addr_type addr,
 enum cache_request_status data_cache::wr_hit_global_we_local_wb(
     new_addr_type addr, unsigned cache_index, mem_fetch *mf, unsigned time,
     std::list<cache_event> &events, enum cache_request_status status) {
-  bool evict = (mf->get_access_type() ==
-                GLOBAL_ACC_W);  // evict a line that hits on global memory write
+  bool evict = ((mf->get_access_type() == GLOBAL_ACC_W) ||
+                (mf->get_access_type() == Z_ACCESS_TYPE));
+  // evict a line that hits on global memory write
   if (evict)
     return wr_hit_we(addr, cache_index, mf, time, events,
                      status);  // Write-evict
@@ -1747,6 +1770,15 @@ enum cache_request_status data_cache::process_tag_probe(
 enum cache_request_status data_cache::access(new_addr_type addr, mem_fetch *mf,
                                              unsigned time,
                                              std::list<cache_event> &events) {
+  if (mf->get_access_type() == Z_UNIT_C_UPDATE) {
+    m_C_access++;
+  }
+  if (mf->get_access_type() == Z_UNIT_WRBK_ACC) {
+    m_Z_WB_access++;
+  }
+  if (mf->get_access_type() == Z_ACCESS_TYPE) {
+    m_Z_read_access++;
+  }
   assert(mf->get_data_size() <= m_config.get_atom_sz());
   bool wr = mf->get_is_write();
   new_addr_type block_addr = m_config.block_addr(addr);
@@ -1925,5 +1957,10 @@ void tex_cache::display_state(FILE *fp) const {
     fprintf(fp, "%s:          ", f.m_miss ? "miss" : "hit ");
     f.m_request->print(fp, false);
   }
+}
+
+void tex_cache::print(FILE *fp, unsigned &accesses, unsigned &misses) const {
+  fprintf(fp, "Cache %s:\t", m_name.c_str());
+  m_tags.print(fp, accesses, misses);
 }
 /******************************************************************************************************************************************/

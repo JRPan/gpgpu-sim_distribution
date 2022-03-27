@@ -52,6 +52,20 @@ class ptx_recognizer;
 #include "ptx.tab.h"
 #include "ptx_loader.h"
 
+#include <fenv.h>
+#include <GL/gl.h>
+#include <iostream>
+#include <cmath>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <vector>
+
+// #include "api/cuda_syscalls.hh"
+// #include "gpu/gpgpu-sim/cuda_gpu.hh"
+#include "../graphics/mesa_gpgpusim.h"
+// #include "cuda_device_printf.h"
+// #include "cuda-math.h"
+#include "../stream_manager.h"
 // Jin: include device runtime for CDP
 #include "cuda_device_runtime.h"
 
@@ -223,6 +237,228 @@ void ptx_thread_info::resume_reg_thread(char *fname, symbol_table *symtab) {
     m_regs.back()[reg] = data;
   }
   fclose(fp2);
+}
+
+// void writeVertexResultData(const operand_info &dst, const symbol &data, unsigned type, ptx_thread_info *thread, const ptx_instruction *pI ){
+
+//     //TODO: remove this function
+//     assert(0);
+//     unsigned uniqueThreadId = thread->get_uid_in_kernel();
+//     unsigned attribIndex = dst.get_addr_offset();
+//     unsigned resAttribID;
+
+//     switch(dst.get_int()){//&0xFFFF){
+//         case VERT_OUT0:  resAttribID = 0; break;
+//         case VERT_OUT1:  resAttribID = 1; break;
+//         case VERT_OUT2:  resAttribID = 2; break;
+//         case VERT_OUT3:  resAttribID = 3; break;
+//         case VERT_OUT4:  resAttribID = 4; break;
+//         default: printf("Undefined vertex result register \n"); abort();
+//     }
+//     writeVertexResult(uniqueThreadId, resAttribID, attribIndex, data.f32);
+// }
+
+shaderAttrib_t readShaderInputData(ptx_thread_info *thread,int builtin_id, unsigned dim_mod){
+    unsigned uniqueThreadId = thread->get_uid_in_kernel();
+    unsigned attribIndex = dim_mod;
+    unsigned attribID;
+    void* stream = thread->get_kernel_info()->get_stream();
+    unsigned fileIdx = -1;
+    unsigned idx2D = -1;
+
+    switch(builtin_id){
+      case SHADER_IN0:
+      case SHADER_IN1: 
+      case SHADER_IN2:
+      case SHADER_IN3:{
+        fileIdx = builtin_id - SHADER_IN0;
+        attribID=TGSI_FILE_INPUT;
+        break;
+      }
+      case SHADER_CONST00: {
+        fileIdx = 0;
+        idx2D = 0;
+        attribID=TGSI_FILE_CONSTANT;
+        break;
+      }
+      case SHADER_CONST01: {
+        fileIdx = 0;
+        idx2D = 1;
+        attribID=TGSI_FILE_CONSTANT;
+        break;
+      }
+      case SHADER_CONST02: {
+        fileIdx = 0;
+        idx2D = 2;
+        attribID=TGSI_FILE_CONSTANT;
+        break;
+      }
+      case SHADER_CONST03: {
+        fileIdx = 0;
+        idx2D = 3;
+        attribID=TGSI_FILE_CONSTANT;
+        break;
+      }
+      case SHADER_CONST04: {
+        fileIdx = 0;
+        idx2D = 4;
+        attribID=TGSI_FILE_CONSTANT;
+        break;
+      }
+      case SHADER_CONST05: {
+        fileIdx = 0;
+        idx2D = 5;
+        attribID=TGSI_FILE_CONSTANT;
+        break;
+      }
+      case SHADER_CONST06: {
+        fileIdx = 0;
+        idx2D = 6;
+        attribID=TGSI_FILE_CONSTANT;
+        break;
+      }
+      case SHADER_CONST07: {
+        fileIdx = 0;
+        idx2D = 7;
+        attribID=TGSI_FILE_CONSTANT;
+        break;
+      }
+      case SHADER_CONST08: {
+        fileIdx = 0;
+        idx2D = 8;
+        attribID=TGSI_FILE_CONSTANT;
+        break;
+      }
+      case SHADER_CONST09: {
+        fileIdx = 0;
+        idx2D = 9;
+        attribID=TGSI_FILE_CONSTANT;
+        break;
+      }
+      case SHADER_CONST10: {
+        fileIdx = 0;
+        idx2D = 10;
+        attribID=TGSI_FILE_CONSTANT;
+        break;
+      }
+      case SHADER_CONST11: {
+        fileIdx = 0;
+        idx2D = 11;
+        attribID=TGSI_FILE_CONSTANT;
+        break;
+      }
+      case SHADER_CONST12: {
+        fileIdx = 0;
+        idx2D = 12;
+        attribID=TGSI_FILE_CONSTANT;
+        break;
+      }
+      case FRAGMENT_ACTIVE: {
+        attribID = FRAG_ACTIVE;
+        break;
+      }
+      case FQUAD_ACTIVE: {
+        attribID = QUAD_ACTIVE;
+        break;
+      }
+      case SKIP_DEPTH_TEST: {
+        attribID = DEPTH_TEST_NOT_ACTIVE;
+        break;
+      }
+      case SHADER_COLOR0: {
+          unsigned pixelSize = g_renderData.getPixelSizeSim();
+          //convert 0.0-1.0 colors to RGBA8
+          uint32_t r = round(CLAMP(thread->get_builtin_storage(SHADER_COLOR0, 0).f32, 0.0, 1.0) * 255);
+          uint32_t g = round(CLAMP(thread->get_builtin_storage(SHADER_COLOR0, 1).f32, 0.0, 1.0) * 255);
+          uint32_t b = round(CLAMP(thread->get_builtin_storage(SHADER_COLOR0, 2).f32, 0.0, 1.0) * 255);
+          uint32_t a = round(CLAMP(thread->get_builtin_storage(SHADER_COLOR0, 3).f32, 0.0, 1.0) * 255);
+
+          if(pixelSize == 4){
+             a = round(CLAMP(thread->get_builtin_storage(SHADER_COLOR0, 3).f32, 0.0, 1.0) * 255);
+          } else if(pixelSize ==3) {
+             printf("Unexpected pixel size\n");
+             assert(0);
+             a = 255;
+          } else {
+             printf("Unexpected pixel size\n");
+             assert(0);
+          }
+          shaderAttrib_t color;
+          color.u32 = (a << 24) + (r << 16) + (g << 8) + b;
+          return color;
+        break;
+      } case VERTEX_ACTIVE: {
+         attribID = VERT_ACTIVE;
+         break;
+      } case VERT_ATTRIB0: {
+         attribID = VERT_ATTRIB_ADDR;
+         idx2D = attribIndex;
+         attribIndex = 0;
+         break;
+      } case VERT_ATTRIB1: {
+         attribID = VERT_ATTRIB_ADDR;
+         idx2D = attribIndex;
+         attribIndex = 1;
+         break;
+      } case VERT_ATTRIB2: {
+         attribID = VERT_ATTRIB_ADDR;
+         idx2D = attribIndex;
+         attribIndex = 2;
+         break;
+      } case VERT_ATTRIB3: {
+         attribID = VERT_ATTRIB_ADDR;
+         idx2D = attribIndex;
+         attribIndex = 3;
+         break;
+      } case VERT_OUT0:  {
+         attribID = VERT_WRITE_ADDR;
+         idx2D = attribIndex;
+         attribIndex = 0;
+         break;
+      } case VERT_OUT1: {
+         attribID = VERT_WRITE_ADDR;
+         idx2D = attribIndex;
+         attribIndex = 1;
+         break;
+      } case VERT_OUT2: {
+         attribID = VERT_WRITE_ADDR;
+         idx2D = attribIndex;
+         attribIndex = 2;
+         break;
+      } case VERT_OUT3: {
+         attribID = VERT_WRITE_ADDR;
+         idx2D = attribIndex;
+         attribIndex = 3;
+         break;
+      } case VERT_OUT4: {
+         attribID = VERT_WRITE_ADDR;
+         idx2D = attribIndex;
+         attribIndex = 4;
+         break;
+      }
+      default: printf("Undefined fragment input register \n"); abort();
+    }
+    return g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, attribID, attribIndex, fileIdx, idx2D, stream);
+}
+
+/*uint64_t readVertexInputData(ptx_thread_info *thread,int builtin_id, unsigned dim_mod){
+    unsigned uniqueThreadId = thread->get_uid_in_kernel();
+    unsigned attribIndex = dim_mod;
+    void* stream = thread->get_kernel_info()->get_stream();
+    unsigned attribType = builtin_id == VERTEX_ACTIVE ? VERT_ACTIVE : VERT_ATTRIB_ADDR;
+    unsigned attribID;
+    switch (builtin_id){
+       case VERT_ATTRIB0: attribID = 0; break;
+       case VERT_ATTRIB1: attribID = 1; break;
+       case VERT_ATTRIB2: attribID = 2; break;
+       case VERT_ATTRIB3: attribID = 3; break;
+       default: assert(0);
+    }
+    return g_renderData.getVertexData(uniqueThreadId, attribType, attribID, attribIndex, stream);
+}*/
+
+unsigned readBufferWidth(){
+    return readMESABufferWidth();
 }
 
 ptx_reg_t ptx_thread_info::get_reg(const symbol *reg) {
@@ -397,40 +633,44 @@ ptx_reg_t ptx_thread_info::get_operand_value(const operand_info &op,
   // const memory
   if ((op.get_addr_space() == global_space) && (derefFlag)) {
     // global memory - g[4], g[$r0]
+    printf("JR - instructions.cc - get_operand_value\n");
     mem = thread->get_global_memory();
     type_info_key::type_decode(opType, size, t);
     mem->read(result.u32, size / 8, &finalResult.u128);
-    thread->m_last_effective_address = result.u32;
+    thread->m_last_effective_address.set(result.u32);
     thread->m_last_memory_space = global_space;
 
     if (opType == S16_TYPE || opType == S32_TYPE)
       sign_extend(finalResult, size, dstInfo);
   } else if ((op.get_addr_space() == shared_space) && (derefFlag)) {
+    printf("JR - instructions.cc - get_operand_value\n");
     // shared memory - s[4], s[$r0]
     mem = thread->m_shared_mem;
     type_info_key::type_decode(opType, size, t);
     mem->read(result.u32, size / 8, &finalResult.u128);
-    thread->m_last_effective_address = result.u32;
+    thread->m_last_effective_address.set(result.u32);
     thread->m_last_memory_space = shared_space;
 
     if (opType == S16_TYPE || opType == S32_TYPE)
       sign_extend(finalResult, size, dstInfo);
   } else if ((op.get_addr_space() == const_space) && (derefFlag)) {
+    printf("JR - instructions.cc - get_operand_value\n");
     // const memory - ce0c1[4], ce0c1[$r0]
     mem = thread->get_global_memory();
     type_info_key::type_decode(opType, size, t);
     mem->read((result.u32 + op.get_const_mem_offset()), size / 8,
               &finalResult.u128);
-    thread->m_last_effective_address = result.u32;
+    thread->m_last_effective_address.set(result.u32);
     thread->m_last_memory_space = const_space;
     if (opType == S16_TYPE || opType == S32_TYPE)
       sign_extend(finalResult, size, dstInfo);
   } else if ((op.get_addr_space() == local_space) && (derefFlag)) {
+    printf("JR - instructions.cc - get_operand_value\n");
     // local memory - l0[4], l0[$r0]
     mem = thread->m_local_mem;
     type_info_key::type_decode(opType, size, t);
     mem->read(result.u32, size / 8, &finalResult.u128);
-    thread->m_last_effective_address = result.u32;
+    thread->m_last_effective_address.set(result.u32);
     thread->m_last_memory_space = local_space;
     if (opType == S16_TYPE || opType == S32_TYPE)
       sign_extend(finalResult, size, dstInfo);
@@ -595,6 +835,16 @@ void ptx_thread_info::set_operand_value(const operand_info &dst,
 
   /*complete this section for other cases*/
   if (dst.get_addr_space() == undefined_space) {
+    if(dst.is_builtin()){
+       if(dst.get_int()==SHADER_COLOR0) {
+         set_builtin_storage(SHADER_COLOR0, dst.get_addr_offset(), data);
+         return;
+       } else {
+         assert(0);
+        //  writeVertexResultData(dst, data, type, thread, pI );
+         return;
+       }
+      }
     ptx_reg_t setValue;
     setValue.u64 = data.u64;
 
@@ -750,7 +1000,7 @@ void ptx_thread_info::set_operand_value(const operand_info &dst,
     type_info_key::type_decode(type, size, t);
 
     mem->write(dstData.u32, size / 8, &data.u128, thread, pI);
-    thread->m_last_effective_address = dstData.u32;
+    thread->m_last_effective_address.set(dstData.u32);
     thread->m_last_memory_space = global_space;
   }
 
@@ -761,7 +1011,7 @@ void ptx_thread_info::set_operand_value(const operand_info &dst,
     type_info_key::type_decode(type, size, t);
 
     mem->write(dstData.u32, size / 8, &data.u128, thread, pI);
-    thread->m_last_effective_address = dstData.u32;
+    thread->m_last_effective_address.set(dstData.u32);
     thread->m_last_memory_space = shared_space;
   }
 
@@ -772,7 +1022,7 @@ void ptx_thread_info::set_operand_value(const operand_info &dst,
     type_info_key::type_decode(type, size, t);
 
     mem->write(dstData.u32, size / 8, &data.u128, thread, pI);
-    thread->m_last_effective_address = dstData.u32;
+    thread->m_last_effective_address.set(dstData.u32);
     thread->m_last_memory_space = local_space;
   }
 
@@ -1501,7 +1751,7 @@ void atom_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   // Check state space
   assert(space == global_space || space == shared_space);
 
-  thread->m_last_effective_address = effective_address_final;
+  thread->m_last_effective_address.set(effective_address_final);
   thread->m_last_memory_space = space;
   thread->m_last_dram_callback.function = atom_callback;
   thread->m_last_dram_callback.instruction = pI;
@@ -2258,8 +2508,8 @@ void clz_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   unsigned i_type = pI->get_type();
   a = thread->get_operand_value(src1, dst, i_type, thread, 1);
 
-  int max;
-  unsigned long long mask;
+  int max = 0;
+  unsigned long long mask = 0;
   d.u64 = 0;
 
   switch (i_type) {
@@ -3213,6 +3463,32 @@ void div_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   thread->set_operand_value(dst, data, i_type, thread, pI);
 }
 
+void pow_impl( const ptx_instruction *pI, ptx_thread_info *thread ) 
+{ 
+   ptx_reg_t src1_data, src2_data, data;
+   const operand_info &dst  = pI->dst();
+   const operand_info &src1 = pI->src1();
+   const operand_info &src2 = pI->src2();
+
+   unsigned i_type = pI->get_type();
+
+   src1_data = thread->get_operand_value(src1, dst, i_type, thread, 1);
+   src2_data = thread->get_operand_value(src2, dst, i_type, thread, 1);
+
+
+   switch ( i_type ) {
+   case F32_TYPE: 
+      data.f32 = cuda_math::__powf(src1_data.f32, src2_data.f32);
+      break;
+   default:
+      printf("Execution error: type mismatch with instruction\n");
+      assert(0); 
+      break;
+   }
+   
+   thread->set_operand_value(dst,data, i_type, thread,pI);
+}
+
 void dp4a_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   printf("DP4A instruction not implemented yet");
   assert(0);
@@ -3244,6 +3520,9 @@ void exit_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   thread->set_done();
   thread->exitCore();
   thread->registerExit();
+  if (thread->get_kernel_info()->isGraphicsKernel()) {
+    g_renderData.checkGraphicsThreadExit(thread);
+  }
 }
 
 void mad_def(const ptx_instruction *pI, ptx_thread_info *thread,
@@ -3254,6 +3533,8 @@ void fma_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
 }
 
 void isspacep_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
+  printf("JR - isspacep_impl\n");
+  fflush(stdout);
   ptx_reg_t a;
   bool t = false;
 
@@ -3404,7 +3685,7 @@ void ld_exec(const ptx_instruction *pI, ptx_thread_info *thread) {
     } else  // v2
       thread->set_vector_operand_values(dst, data1, data2, data2, data2);
   }
-  thread->m_last_effective_address = addr;
+  thread->m_last_effective_address.set(addr);
   thread->m_last_memory_space = space;
 }
 
@@ -3413,6 +3694,12 @@ void ld_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
 }
 void ldu_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   ld_exec(pI, thread);
+}
+
+void ldv_impl( const ptx_instruction *pI, ptx_thread_info *thread ) 
+{ 
+   //assert(0);
+   ld_exec(pI,thread);
 }
 
 void mma_st_impl(const ptx_instruction *pI, core_t *core, warp_inst_t &inst) {
@@ -3533,7 +3820,7 @@ void mma_st_impl(const ptx_instruction *pI, core_t *core, warp_inst_t &inst) {
       inst.data_size = 4;  // 4 byte transaction
 
     assert(inst.memory_op == insn_memory_op);
-    // thread->m_last_effective_address = addr;
+    // thread->m_last_effective_address.set(addr);
     // thread->m_last_memory_space = space;
   }
 }
@@ -3756,7 +4043,7 @@ void mma_ld_impl(const ptx_instruction *pI, core_t *core, warp_inst_t &inst) {
       }
     }
 
-    // thread->m_last_effective_address = addr;
+    // thread->m_last_effective_address.set(addr);
     // thread->m_last_memory_space = space;
   }
 }
@@ -3830,6 +4117,45 @@ void mad24_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   }
 
   thread->set_operand_value(dst, d, i_type, thread, pI);
+}
+
+void lrp_impl( const ptx_instruction *pI, ptx_thread_info *thread ){
+   const operand_info &dst  = pI->dst();
+   const operand_info &src1 = pI->src1();
+   const operand_info &src2 = pI->src2();
+   const operand_info &src3 = pI->src3();
+   ptx_reg_t d, t;
+
+   unsigned i_type = pI->get_type();
+   ptx_reg_t a = thread->get_operand_value(src1, dst, i_type, thread, 1);
+   ptx_reg_t b = thread->get_operand_value(src2, dst, i_type, thread, 1);
+   ptx_reg_t c = thread->get_operand_value(src3, dst, i_type, thread, 1);
+
+   unsigned rounding_mode = pI->rounding_mode();
+
+   switch ( i_type ) {
+   case F32_TYPE: {
+         int orig_rm = fegetround();
+         switch ( rounding_mode ) {
+         case RN_OPTION: break;
+         case RZ_OPTION: fesetround( FE_TOWARDZERO ); break;
+         default: assert(0); break;
+         }
+         //d.f32 = a.f32 * b.f32 + c.f32;
+         d.f32 = (a.f32 * b.f32) + ( (1.0 - a.f32) * c.f32);
+
+         if ( pI->saturation_mode() ) {
+            if ( d.f32 < 0 ) d.f32 = 0;
+            else if ( d.f32 > 1.0f ) d.f32 = 1.0f;
+         }
+         fesetround( orig_rm );
+         break;
+      }  
+   default: 
+      assert(0);
+      break;
+   }
+   thread->set_operand_value(dst, d, i_type, thread, pI);
 }
 
 void mad_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
@@ -4129,6 +4455,7 @@ void mov_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
 
   if ((src1.is_vector() || dst.is_vector()) && (i_type != BB64_TYPE) &&
       (i_type != BB128_TYPE) && (i_type != FF64_TYPE)) {
+    assert(!pI->saturation_mode());
     // pack or unpack operation
     unsigned nbits_to_move;
     ptx_reg_t tmp_bits;
@@ -4235,6 +4562,19 @@ void mov_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
     thread->set_operand_value(dst, finaldata, i_type, thread, pI);
   } else {
     data = thread->get_operand_value(src1, dst, i_type, thread, 1);
+
+    if (i_type == F32_TYPE and pI->saturation_mode()) {
+      if (data.f32 < 0)
+        data.f32 = 0;
+      else if (data.f32 > 1.0f)
+        data.f32 = 1.0f;
+    } else if (i_type == F64_TYPE and pI->saturation_mode()) {
+      if (data.f64 < 0)
+        data.f64 = 0;
+      else if (data.f64 > 1.0f)
+        data.f64 = 1.0f;
+    } else
+      assert(!pI->saturation_mode());
 
     thread->set_operand_value(dst, data, i_type, thread, pI);
   }
@@ -5693,7 +6033,8 @@ void sst_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   // sync threads
   cpI->set_bar_id(16);  // use 16 for sst because bar uses an int from 0-15
 
-  thread->m_last_effective_address = addr;
+  
+  thread->m_last_effective_address.set(addr);
   thread->m_last_memory_space = space;
   thread->m_last_dram_callback.function = bar_callback;
   thread->m_last_dram_callback.instruction = cpI;
@@ -5744,7 +6085,7 @@ void sst_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
     }
 
     cta_info->reset_bar_threads();
-    thread->m_last_effective_address = addr + (NUM_THREADS - 1) * 4;
+    thread->m_last_effective_address.set(addr + (NUM_THREADS - 1) * 4);
     thread->m_last_memory_space = space;
   }
 }
@@ -5755,56 +6096,58 @@ void ssy_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   // TODO: add implementation
 }
 
-void st_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
-  const operand_info &dst = pI->dst();
-  const operand_info &src1 = pI->src1();  // may be scalar or vector of regs
-  unsigned type = pI->get_type();
-  ptx_reg_t addr_reg = thread->get_operand_value(dst, dst, type, thread, 1);
-  ptx_reg_t data;
-  memory_space_t space = pI->get_space();
-  unsigned vector_spec = pI->get_vector();
+// void st_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
+//   printf("JR - st_impl - this was removed in emerald\n");
+//   fflush(stdout);
+//   const operand_info &dst = pI->dst();
+//   const operand_info &src1 = pI->src1();  // may be scalar or vector of regs
+//   unsigned type = pI->get_type();
+//   ptx_reg_t addr_reg = thread->get_operand_value(dst, dst, type, thread, 1);
+//   ptx_reg_t data;
+//   memory_space_t space = pI->get_space();
+//   unsigned vector_spec = pI->get_vector();
 
-  memory_space *mem = NULL;
-  addr_t addr = addr_reg.u32;
+//   memory_space *mem = NULL;
+//   addr_t addr = addr_reg.u32;
 
-  decode_space(space, thread, dst, mem, addr);
+//   decode_space(space, thread, dst, mem, addr);
 
-  size_t size;
-  int t;
-  type_info_key::type_decode(type, size, t);
+//   size_t size;
+//   int t;
+//   type_info_key::type_decode(type, size, t);
 
-  if (!vector_spec) {
-    data = thread->get_operand_value(src1, dst, type, thread, 1);
-    mem->write(addr, size / 8, &data.s64, thread, pI);
-  } else {
-    if (vector_spec == V2_TYPE) {
-      ptx_reg_t *ptx_regs = new ptx_reg_t[2];
-      thread->get_vector_operand_values(src1, ptx_regs, 2);
-      mem->write(addr, size / 8, &ptx_regs[0].s64, thread, pI);
-      mem->write(addr + size / 8, size / 8, &ptx_regs[1].s64, thread, pI);
-      delete[] ptx_regs;
-    }
-    if (vector_spec == V3_TYPE) {
-      ptx_reg_t *ptx_regs = new ptx_reg_t[3];
-      thread->get_vector_operand_values(src1, ptx_regs, 3);
-      mem->write(addr, size / 8, &ptx_regs[0].s64, thread, pI);
-      mem->write(addr + size / 8, size / 8, &ptx_regs[1].s64, thread, pI);
-      mem->write(addr + 2 * size / 8, size / 8, &ptx_regs[2].s64, thread, pI);
-      delete[] ptx_regs;
-    }
-    if (vector_spec == V4_TYPE) {
-      ptx_reg_t *ptx_regs = new ptx_reg_t[4];
-      thread->get_vector_operand_values(src1, ptx_regs, 4);
-      mem->write(addr, size / 8, &ptx_regs[0].s64, thread, pI);
-      mem->write(addr + size / 8, size / 8, &ptx_regs[1].s64, thread, pI);
-      mem->write(addr + 2 * size / 8, size / 8, &ptx_regs[2].s64, thread, pI);
-      mem->write(addr + 3 * size / 8, size / 8, &ptx_regs[3].s64, thread, pI);
-      delete[] ptx_regs;
-    }
-  }
-  thread->m_last_effective_address = addr;
-  thread->m_last_memory_space = space;
-}
+//   if (!vector_spec) {
+//     data = thread->get_operand_value(src1, dst, type, thread, 1);
+//     mem->write(addr, size / 8, &data.s64, thread, pI);
+//   } else {
+//     if (vector_spec == V2_TYPE) {
+//       ptx_reg_t *ptx_regs = new ptx_reg_t[2];
+//       thread->get_vector_operand_values(src1, ptx_regs, 2);
+//       mem->write(addr, size / 8, &ptx_regs[0].s64, thread, pI);
+//       mem->write(addr + size / 8, size / 8, &ptx_regs[1].s64, thread, pI);
+//       delete[] ptx_regs;
+//     }
+//     if (vector_spec == V3_TYPE) {
+//       ptx_reg_t *ptx_regs = new ptx_reg_t[3];
+//       thread->get_vector_operand_values(src1, ptx_regs, 3);
+//       mem->write(addr, size / 8, &ptx_regs[0].s64, thread, pI);
+//       mem->write(addr + size / 8, size / 8, &ptx_regs[1].s64, thread, pI);
+//       mem->write(addr + 2 * size / 8, size / 8, &ptx_regs[2].s64, thread, pI);
+//       delete[] ptx_regs;
+//     }
+//     if (vector_spec == V4_TYPE) {
+//       ptx_reg_t *ptx_regs = new ptx_reg_t[4];
+//       thread->get_vector_operand_values(src1, ptx_regs, 4);
+//       mem->write(addr, size / 8, &ptx_regs[0].s64, thread, pI);
+//       mem->write(addr + size / 8, size / 8, &ptx_regs[1].s64, thread, pI);
+//       mem->write(addr + 2 * size / 8, size / 8, &ptx_regs[2].s64, thread, pI);
+//       mem->write(addr + 3 * size / 8, size / 8, &ptx_regs[3].s64, thread, pI);
+//       delete[] ptx_regs;
+//     }
+//   }
+//   thread->m_last_effective_address = addr;
+//   thread->m_last_memory_space = space;
+// }
 
 void sub_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   ptx_reg_t data;
@@ -5947,6 +6290,8 @@ float tex_linf_sampling(memory_space *mem, unsigned tex_array_base, int x,
                         int y, unsigned int width, unsigned int height,
                         size_t elem_size, float alpha, float beta,
                         texAddr_t b_lim) {
+  printf("JR - tex_linf_sampling - this was removed in emerald\n");
+  fflush(stdout);
   float Tij;
   float Ti1j;
   float Tij1;
@@ -6012,6 +6357,121 @@ void textureNormalizeOutput(const struct cudaChannelFormatDesc &desc,
   }
 }
 
+struct samplePointLocation{
+    void set(int i, int j, float pfactor){
+        x = i;
+        y = j;
+        factor = pfactor;
+    }
+    int x,y; //z not used here, 3d textures are supported
+    float factor;
+};
+
+//function that apply addressing mode to coord given the dimension size for the coord is dimSize
+float applyTexAddressingMode(float coord, cudaTextureAddressMode addressingMode, unsigned int dimSize){
+    assert(addressingMode==cudaAddressModeClamp or addressingMode==cudaAddressModeWrap);
+    
+    if(addressingMode==cudaAddressModeClamp){
+        coord = (coord > (dimSize - 1))? (dimSize - 1) : coord;
+        coord = (coord < 0)? 0 : coord;
+    } else if (addressingMode==cudaAddressModeWrap){
+        coord = fmod(coord,dimSize);
+        coord = (coord>=0)? coord : coord + dimSize;
+    } else assert(0);
+    return coord;
+}
+
+std::vector<samplePointLocation> getSamplingPoints(float x, float y, unsigned dimension, cudaTextureFilterMode filterMode){
+    std::vector<samplePointLocation> samplingPoints;
+    //filter mode is point
+    if (filterMode == cudaFilterModePoint) {
+        samplePointLocation sp;
+        int i = floor(x);
+        int j = floor(y);
+        if(dimension==GEOM_MODIFIER_1D) sp.set(i,0,1);
+        else if(dimension==GEOM_MODIFIER_2D) sp.set(i,j,1);
+        else {
+            printf("Dimensions identifier is either not supported or incorrect\n");
+            assert(0);
+        }
+        samplingPoints.push_back(sp);
+    } else if (filterMode == cudaFilterModeLinear){
+        //as specified in the cuda manual in texture fetching section
+        float xb = x < 0.5? x: x - 0.5;
+        float yb = y < 0.5? y: y - 0.5;
+        float a = xb - floor(xb);
+        float b = yb - floor(yb);
+        int i = floor(xb);
+        int j = floor(yb);
+        //case filter mode is linear
+        if(dimension==GEOM_MODIFIER_1D){
+            samplePointLocation sp0, sp1;
+            sp0.set(i,0,1-a);
+            sp1.set(i+1,0,a);
+            samplingPoints.push_back(sp0);
+            samplingPoints.push_back(sp1);
+        } else if(dimension==GEOM_MODIFIER_2D){
+            samplePointLocation sp0, sp1, sp2, sp3;
+            sp0.set(i,j,(1-a)*(1-b));
+            sp1.set(i+1,j,a*(1-b));
+            sp2.set(i,j+1,(1-a)*b);
+            sp3.set(i+1,j+1,a*b);
+            samplingPoints.push_back(sp0);
+            samplingPoints.push_back(sp1);
+            samplingPoints.push_back(sp2);
+            samplingPoints.push_back(sp3);
+        } else {
+            printf("Dimensions identifier is either not supported or incorrect\n");
+            assert(0);
+        }
+    }
+    return samplingPoints;
+}
+
+void getTexelData(ptx_thread_info *thread, addr_t offset, ptx_reg_t * data, float factor,
+        unsigned type, unsigned size, void* texel_data) {
+    memory_space * tex_mem = thread->get_tex_memory();
+    ptx_reg_t tempData;
+    switch (type) {
+        case U8_TYPE:
+        case U16_TYPE:
+        case U32_TYPE:
+        case B8_TYPE:
+        case B16_TYPE:
+        case B32_TYPE:
+        case S8_TYPE:
+        case S16_TYPE:
+        case S32_TYPE:
+            memcpy(&tempData.u32,texel_data+offset,size);
+            //tex_mem->read(texel_data+offset, size, &tempData.u32, thread, NULL);
+            data->u32 += factor * tempData.u32;
+            break;
+        case B64_TYPE:
+        case U64_TYPE:
+        case S64_TYPE:
+            memcpy(&tempData.u64,texel_data+offset,size);//need to be rechecked as original code uses 8
+            //tex_mem->read(texel_data+offset, size, &tempData.u64, thread, NULL);
+            data->u64 += factor * tempData.u64;
+            break;
+        case F16_TYPE: assert(0);
+            break;
+        case F32_TYPE:
+            memcpy(&tempData.f32,texel_data+offset,size);
+            //tex_mem->read(texel_data+offset, size, &tempData.f32, NULL, NULL);
+            data->f32 += factor * tempData.f32;
+            break;
+        case F64_TYPE:
+        case FF64_TYPE:
+            memcpy(&tempData.f64,texel_data+offset,size);
+            //tex_mem->read(texel_data+offset, size, &tempData.f64, NULL, NULL);
+            data->f64 += factor * tempData.f64;
+            break;
+        default: assert(0);
+            break;
+    }
+}
+
+/*
 void tex_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   unsigned dimension = pI->dimension();
   const operand_info &dst =
@@ -6033,13 +6493,13 @@ void tex_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
       src2, thread->get_gpu()->gpgpu_ctx->func_sim->ptx_tex_regs,
       nelem);  // ptx_reg should be 4 entry vector type...coordinates into
                // texture
-  /*
-    For programs with many streams, textures can be bound and unbound
-    asynchronously.  This means we need to use the kernel's "snapshot" of
-    the state of the texture mappings when it was launched (so that we
-    don't try to access the incorrect texture mapping if it's been updated,
-    or that we don't access a mapping that has been unbound).
-  */
+  // 
+  //   For programs with many streams, textures can be bound and unbound
+  //   asynchronously.  This means we need to use the kernel's "snapshot" of
+  //   the state of the texture mappings when it was launched (so that we
+  //   don't try to access the incorrect texture mapping if it's been updated,
+  //   or that we don't access a mapping that has been unbound).
+  // 
   gpgpu_t *gpu = thread->get_gpu();
   kernel_info_t &k = thread->get_kernel();
   const struct textureReference *texref = gpu->get_texref(texname);
@@ -6330,6 +6790,203 @@ void tex_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
 
   thread->set_vector_operand_values(dst, data1, data2, data3, data4);
 }
+*/
+
+void tex_impl( const ptx_instruction *pI, ptx_thread_info *thread){
+  printf("JR - tex_impl - all copied from emerald\n");
+  fflush(stdout);
+   bool isTxf = (pI->to_string().find("txf") != std::string::npos);
+   bool isTxp = (pI->to_string().find("txp") != std::string::npos);
+   bool isTxb = (pI->to_string().find("txb") != std::string::npos);
+   unsigned dimension = pI->dimension();
+   const operand_info &dst = pI->dst(); //the registers to which fetched texel will be placed
+   const operand_info &src1 = pI->src1(); //the name of the texture
+   const operand_info &src2 = pI->src2(); //the vector registers containing coordinates of the texel to be fetched
+   std::string textureName = src1.name();
+
+   if(isTxf or isTxb or isTxp)
+     assert(textureName.find("TGSI_SAMP") != std::string::npos);
+   //using the texture name to distinguish between graphics and gpgpu textures
+   //which would change where the texture data are fetched from and how their
+   //accesses are generated
+   
+   unsigned to_type = pI->get_type();
+   unsigned coords_type = pI->get_type2();
+   fflush(stdout);
+   ptx_reg_t* ptx_tex_regs[TGSI_QUAD_SIZE];
+   unsigned src_elems = src2.get_vect_nelem();
+  //  thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_ld(tex_space);
+   //registers to save return data
+   ptx_reg_t dataX, dataY, dataZ, dataW;
+
+   if(textureName.find("TGSI_SAMP") == std::string::npos){
+     gpgpu_sim *gpu = thread->get_gpu();
+     const struct textureReference* texref = gpu->get_texref(textureName);
+     const struct cudaArray* cuArray = gpu->get_texarray(textureName); 
+     ptx_tex_regs[0] = new ptx_reg_t[4];
+     thread->get_vector_operand_values(src2, ptx_tex_regs[0], src_elems); //ptx_reg should be 4 entry vector type...coordinates into texture
+     //check that our texels align with texture line size as we assume this when we retrieve and then writeback texels data
+     unsigned const texelSize= (cuArray->desc.x + cuArray->desc.y + cuArray->desc.z +cuArray->desc.w)/8;
+     assert(texelSize %thread->get_gpu()->get_config().get_texcache_linesize());
+
+     //assume always 2D f32 input
+     //access array with src2 coordinates
+     float x_f32=0;
+     float y_f32=0;
+     unsigned int texture_width = cuArray->width;
+     unsigned int texture_height = cuArray->height;
+     new_addr_type tex_array_base = (new_addr_type) cuArray->devPtr;
+     //------------------------------------------
+
+     switch ( coords_type ) {
+       case S32_TYPE:
+         x_f32 = ptx_tex_regs[0][0].s32; 
+         y_f32 = ptx_tex_regs[0][1].s32; 
+       case F32_TYPE: 
+         x_f32 = reduce_precision(ptx_tex_regs[0][0].f32,16);
+         y_f32 = reduce_precision(ptx_tex_regs[0][1].f32,15);
+     }
+     //3D is not supported now
+     assert(dimension!=GEOM_MODIFIER_3D); 
+
+     delete [] ptx_tex_regs[0];
+
+     //channels should be a multiple of byte in size
+     assert(!(cuArray->desc.x%8) and !(cuArray->desc.y%8) and !(cuArray->desc.z%8) and !(cuArray->desc.w%8));
+
+     if(texref->normalized){
+       x_f32*= texture_width;
+       y_f32*= texture_height;
+     } else {
+       //only valid with normalized mode the wrap and the mirror as well which is not supported here anyway
+       assert(texref->addressMode[0]!=cudaAddressModeWrap);
+       assert(texref->addressMode[1]!=cudaAddressModeWrap);
+     }
+
+     //clamping or wrapping each dimension we support, namely x and y
+     x_f32 = applyTexAddressingMode(x_f32,texref->addressMode[0],texture_width);
+     y_f32 = applyTexAddressingMode(y_f32,texref->addressMode[1],texture_height);
+
+     std::vector<samplePointLocation> samplingPoints;   
+     samplingPoints = getSamplingPoints(x_f32, y_f32, dimension, texref->filterMode);
+
+     //bytes per texture texel
+     unsigned texelBytes = (cuArray->desc.w+cuArray->desc.x+cuArray->desc.y+cuArray->desc.z)/8;
+     unsigned textureWidthBytes = texture_width * texelBytes;
+
+
+     for(int point=0;point<samplingPoints.size();point++){
+       new_addr_type reqTexAddr= samplingPoints[point].y * textureWidthBytes; //counting for the y, in case of 1D always y=0
+       reqTexAddr+=samplingPoints[point].x * texelBytes; //the address of the texture 
+       //samplePointInfo_t spa(reqTexAddr,samplingPoints[point].factor, texelSize); 
+       //requetedTexelAddresses.push_back(spa);
+       //printf("fetching texel address = %x\n", tex_array_base+reqTexAddr);
+       thread->m_last_effective_address.set(tex_array_base+reqTexAddr, point);
+
+       float factor = samplingPoints[point].factor;
+       void* texelDataAddr = cuArray->texData+reqTexAddr;
+       //new_addr_type texelDataAddr = ((new_addr_type)cuArray->texData)+reqTexAddr;
+
+       new_addr_type offset =0;
+       if(cuArray->desc.x){
+         getTexelData(thread, offset,&dataX, factor, to_type,
+                      cuArray->desc.x/8, texelDataAddr);
+         offset+= cuArray->desc.x/8;
+       }
+       if(cuArray->desc.y){
+         getTexelData(thread, offset,&dataY, factor, to_type,
+                      cuArray->desc.y/8, texelDataAddr);
+         offset+= cuArray->desc.y/8;
+       }
+       if(cuArray->desc.z){
+         getTexelData(thread, offset,&dataZ, factor, to_type,
+                      cuArray->desc.z/8, texelDataAddr);
+         offset+= cuArray->desc.z/8;
+       }
+       if(cuArray->desc.w){
+         getTexelData(thread, offset,&dataW, factor, to_type,
+                      cuArray->desc.w/8, texelDataAddr);
+         offset+= cuArray->desc.w/8;
+       }
+     }
+
+     const struct textureReferenceAttr* texAttr = gpu->get_texattr(textureName);
+     if (texAttr->m_readmode == cudaReadModeNormalizedFloat) {
+       textureNormalizeOutput(cuArray->desc, dataX, dataY, dataZ, dataW);
+     } else {
+       assert(texAttr->m_readmode == cudaReadModeElementType);
+     }
+     thread->set_vector_operand_values(dst,dataX,dataY,dataZ,dataW);
+   } else {
+     assert(coords_type==F32_TYPE);
+     unsigned uniqueThreadId = thread->get_uid_in_kernel();
+     void* stream = thread->get_kernel_info()->get_stream();
+     const unsigned hwtid = thread->get_hw_tid();
+     float* fcoords = g_renderData.getTexCoords(uniqueThreadId, stream);
+     bool del_fcoords = false;
+     if(fcoords == NULL){
+        fcoords = new float[TGSI_QUAD_SIZE*4];
+        del_fcoords = true;
+        for(unsigned qf=0; qf<TGSI_QUAD_SIZE; qf++)
+           ptx_tex_regs[qf] = new ptx_reg_t[4];
+        unsigned startFrag = (hwtid/TGSI_QUAD_SIZE)*TGSI_QUAD_SIZE;
+        unsigned endFrag = startFrag + TGSI_QUAD_SIZE - 1;
+        for(unsigned qf=startFrag; qf <= endFrag; qf++){
+           //assert(!thread->get_core()->get_thread(qf)->is_done());
+           thread->get_core()->get_thread(qf)->get_vector_operand_values(
+                 src2, ptx_tex_regs[qf-startFrag], src_elems);
+           for(unsigned c=0; c<4; c++){
+              fcoords[(qf-startFrag)*TGSI_QUAD_SIZE+c] = ptx_tex_regs[qf-startFrag][c].f32;
+           }
+        }
+        g_renderData.setTexCoords(uniqueThreadId, stream, fcoords);
+        for(unsigned qf=0; qf<TGSI_QUAD_SIZE; qf++)
+           delete [] ptx_tex_regs[qf];
+     }
+
+     int dim = -1;
+     switch(dimension){
+       case GEOM_MODIFIER_1D: dim =1; break;
+       case GEOM_MODIFIER_2D: dim =2; break;
+       case GEOM_MODIFIER_3D: dim =3; break;
+       default: assert(0 and "Unkown dimension modifier\n");
+     }
+
+     std::string unitNum = textureName.substr(textureName.find('_') + 1);
+     unitNum = unitNum.substr(unitNum.find('_') + 1);
+     int samplingUnit = std::stoi(unitNum, nullptr);
+
+     unsigned dst_elems = dst.get_vect_nelem();
+     float* fdst = new float[dst_elems]; //should only use elems
+
+     std::vector<uint64_t> texelAddrs;
+     texModifier modifier = texModifier::NONE;
+     if(isTxp) modifier = texModifier::PROJECTED;
+     else if(isTxb) modifier = texModifier::LOD_BIAS;
+
+     texelAddrs = g_renderData.fetchTexels(0, samplingUnit, dim, fcoords,
+           src_elems, fdst, dst_elems, uniqueThreadId, stream, modifier);
+
+     uint64_t posX = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_UINT_POS, 0, -1, -1, stream).u64;
+     uint64_t posY = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_UINT_POS, 1, -1, -1, stream).u64;
+
+
+     dataX.f32 = fdst[0];
+     if(dst_elems > 0) dataY.f32 = fdst[1];
+     if(dst_elems > 1) dataZ.f32 = fdst[2];
+     if(dst_elems > 2) dataW.f32 = fdst[3];
+
+     if(del_fcoords)
+        delete[] fcoords;
+     delete [] fdst;
+     for(int ta = 0; ta < texelAddrs.size(); ta++){
+       thread->m_last_effective_address.set(texelAddrs[ta], ta);
+     }
+     thread->set_vector_operand_values(dst,dataX,dataY,dataZ,dataW);
+   }
+   thread->m_last_memory_space = tex_space;
+}
+
 
 void txq_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   inst_not_implemented(pI);
@@ -6488,6 +7145,9 @@ void inst_not_implemented(const ptx_instruction *pI) {
 ptx_reg_t srcOperandModifiers(ptx_reg_t opData, operand_info opInfo,
                               operand_info dstInfo, unsigned type,
                               ptx_thread_info *thread) {
+
+  printf("JR - srcOperandModifiers - commented out in emerald\n");
+  fflush(stdout);
   ptx_reg_t result;
   memory_space *mem = NULL;
   size_t size;
@@ -6534,6 +7194,137 @@ ptx_reg_t srcOperandModifiers(ptx_reg_t opData, operand_info opInfo,
   }
 
   return result;
+}
+
+void getNormilizedRGBA(C_DATA_TYPE color, float * r, float * g, float * b, float * a){
+    unsigned char ac = (color>>24)%256;
+    unsigned char rc = (color>>16)%256;
+    unsigned char gc = (color>>8 )%256;
+    unsigned char bc = (color>>0 )%256; 
+    *a = ((float)ac)/255.0;
+    *r = ((float)rc)/255.0;
+    *g = ((float)gc)/255.0;
+    *b = ((float)bc)/255.0;
+}
+
+float getBlendFactor(GLenum blendMode, float srcColor, float dstColor,
+                        float blendColor, float srcAlpha, float dstAlpha, float blendAlpha){
+    float blendFactor;
+    switch(blendMode){
+        case GL_ZERO: blendFactor=0.0; break;
+        case GL_ONE: blendFactor= 1.0; break;
+        case GL_DST_COLOR: blendFactor = dstColor; break;
+        case GL_ONE_MINUS_DST_COLOR: blendFactor = 1.0 - dstColor; break;
+        case GL_SRC_ALPHA: blendFactor = srcAlpha; break;
+        case GL_ONE_MINUS_SRC_ALPHA: blendFactor = 1.0 - srcAlpha; break;
+        case GL_DST_ALPHA: blendFactor = dstAlpha; break;
+        case GL_ONE_MINUS_DST_ALPHA: blendFactor = 1.0 - dstAlpha; break;
+        case GL_SRC_ALPHA_SATURATE: 
+            if(srcAlpha < (1.0 - dstAlpha))
+                blendFactor = srcAlpha;
+            else 
+                blendFactor = 1.0 - dstAlpha;
+            break;
+        case GL_CONSTANT_COLOR: blendFactor = blendColor; break;
+        case GL_ONE_MINUS_CONSTANT_COLOR: blendFactor = 1.0 - blendColor; break;
+        case GL_CONSTANT_ALPHA: blendFactor = blendAlpha; break;
+        case GL_ONE_MINUS_CONSTANT_ALPHA:  blendFactor = 1.0 - blendAlpha; break;
+        case GL_SRC_COLOR: blendFactor = srcColor; break;
+        case GL_ONE_MINUS_SRC_COLOR: blendFactor = 1.0 - srcColor; break;
+        default: printf("gpgpusim: Unknown blending mode %u\n",blendMode);
+        assert(0);
+    }
+    return blendFactor;
+}
+
+C_DATA_TYPE blend(float as, float rs, float bs, float gs, float ad, float rd, float bd, float gd){
+    //now we only support one type of blending
+    GLenum blend_src_rgb, blend_dst_rgb, blend_src_alpha, blend_dst_alpha, eqnRGB, eqnAlpha;
+    float blendColor[4]; 
+    float ar,rr,gr,br;
+    getBlendingMode(&blend_src_rgb,&blend_dst_rgb,&blend_src_alpha,&blend_dst_alpha,&eqnRGB, &eqnAlpha, blendColor);
+
+    float rsFactor = getBlendFactor(blend_src_rgb,rs, rd, blendColor[RCOMP], as, ad, blendColor[ACOMP]);
+    float rdFactor = getBlendFactor(blend_dst_rgb,rs, rd, blendColor[RCOMP], as, ad, blendColor[ACOMP]);
+  
+    float gsFactor = getBlendFactor(blend_src_rgb,gs, gd, blendColor[GCOMP], as, ad, blendColor[ACOMP]);
+    float gdFactor = getBlendFactor(blend_dst_rgb,gs, gd, blendColor[GCOMP], as, ad, blendColor[ACOMP]);
+
+    float bsFactor = getBlendFactor(blend_src_rgb,bs, bd, blendColor[BCOMP], as, ad, blendColor[ACOMP]);
+    float bdFactor = getBlendFactor(blend_dst_rgb,bs, bd, blendColor[BCOMP], as, ad, blendColor[ACOMP]);
+    
+    float asFactor = getBlendFactor(blend_src_alpha,as, ad, blendColor[ACOMP], as, ad, blendColor[ACOMP]);
+    float adFactor = getBlendFactor(blend_dst_alpha,as, ad, blendColor[ACOMP], as, ad, blendColor[ACOMP]);
+    
+    switch(eqnRGB){
+        case GL_FUNC_ADD: 
+            rr = rs * rsFactor + rd * rdFactor;
+            gr = gs * gsFactor + gd * gdFactor;
+            br = bs * bsFactor + bd * bdFactor;
+            break;
+        case GL_FUNC_SUBTRACT: 
+            rr = rs * rsFactor - rd * rdFactor;
+            gr = gs * gsFactor - gd * gdFactor;
+            br = bs * bsFactor - bd * bdFactor;
+            break;
+        case GL_FUNC_REVERSE_SUBTRACT:
+            rr = rd * rdFactor - rs * rsFactor;
+            gr = gd * gdFactor - gs * gsFactor;
+            br = bd * bdFactor - bs * bsFactor;
+            break;
+        default: 
+            printf("gpgpusim: Unknown RGB blending function mode %d\n",eqnRGB); 
+            assert(0);
+    }
+    
+    switch(eqnAlpha){
+        case GL_FUNC_ADD:
+            ar = as * asFactor + ad * adFactor; break;
+        case GL_FUNC_SUBTRACT:
+            ar = as * asFactor - ad * adFactor; break;
+        case GL_FUNC_REVERSE_SUBTRACT:
+            ar = ad * adFactor - as * asFactor; break;
+        default: 
+            printf("gpgpusim: Unknown alpha blending function mode %d\n",eqnRGB); 
+            assert(0);
+    }
+        
+    C_DATA_TYPE car = ar*255.0;
+    C_DATA_TYPE crr = rr*255.0;
+    C_DATA_TYPE cgr = gr*255.0;
+    C_DATA_TYPE cbr = br*255.0;
+    C_DATA_TYPE result;
+    cbr = cbr;
+    cgr = cgr<<8;
+    crr = crr<<16;
+    car = car<<24;
+    result = cbr + cgr + crr + car;
+    return result;
+}
+
+C_DATA_TYPE blendU32(C_DATA_TYPE color_src, C_DATA_TYPE color_dst){
+    float as, rs, bs, gs, ad, rd, bd, gd;
+    getNormilizedRGBA(color_src,&rs,&gs,&bs,&as);
+    getNormilizedRGBA(color_dst,&rd,&gd,&bd,&ad);
+    return blend(as,rs,bs,gs,ad,rd,bd,gd);
+}
+
+C_DATA_TYPE get_final_color_result(zrop_callback_t::zrop_input_t color, new_addr_type addr) {
+    extern gpgpu_sim *g_the_gpu;
+
+    if (isBlendingEnabled()) {
+        assert(!isDepthTestEnabled());
+        float as, rs, gs, bs;
+        getNormilizedRGBA(color, &rs, &gs, &bs, &as);
+        C_DATA_TYPE dest;
+        g_the_gpu->get_global_memory()->read(addr, C_DATA_SIZE, &dest);
+        float rd, bd, ad, gd;
+        getNormilizedRGBA(dest, &rd, &gd, &bd, &ad);
+        C_DATA_TYPE resultColor = blend(as, rs, bs, gs, ad, rd, bd, gd);
+        return resultColor;
+    }
+    
+    return color;
 }
 
 void video_mem_instruction(const ptx_instruction *pI, ptx_thread_info *thread,
@@ -6607,4 +7398,198 @@ void video_mem_instruction(const ptx_instruction *pI, ptx_thread_info *thread,
   thread->set_operand_value(dst, data, i_type, thread, pI);
 
   return;
+}
+
+void store_func( const ptx_instruction *pI, ptx_thread_info *thread ) 
+{
+   const operand_info &dst = pI->dst();
+   const operand_info &src1 = pI->src1(); //may be scalar or vector of regs
+   unsigned type = pI->get_type();
+   ptx_reg_t addr_reg = thread->get_operand_value(dst, dst, type, thread, 1);
+   ptx_reg_t data;
+   memory_space_t space = pI->get_space();
+   unsigned vector_spec = pI->get_vector();
+
+   memory_space *mem = NULL;
+   addr_t addr = addr_reg.u64;
+   decode_space(space,thread,dst,mem,addr);
+  //  thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_st(space);
+
+   if (space.get_type() != global_space &&
+       space.get_type() != const_space &&
+       space.get_type() != local_space) {
+   size_t size;
+   int t;
+   type_info_key::type_decode(type,size,t);
+
+   if (!vector_spec) {
+      data = thread->get_operand_value(src1, dst, type, thread, 1);
+      mem->write(addr,size/8,&data.s64,thread,pI);
+   } else {
+      if (vector_spec == V2_TYPE) {
+         ptx_reg_t* ptx_regs = new ptx_reg_t[2]; 
+         thread->get_vector_operand_values(src1, ptx_regs, 2); 
+         mem->write(addr,size/8,&ptx_regs[0].s64,thread,pI);
+         mem->write(addr+size/8,size/8,&ptx_regs[1].s64,thread,pI);
+         delete [] ptx_regs;
+      }
+      if (vector_spec == V3_TYPE) {
+         ptx_reg_t* ptx_regs = new ptx_reg_t[3]; 
+         thread->get_vector_operand_values(src1, ptx_regs, 3); 
+         mem->write(addr,size/8,&ptx_regs[0].s64,thread,pI);
+         mem->write(addr+size/8,size/8,&ptx_regs[1].s64,thread,pI);
+         mem->write(addr+2*size/8,size/8,&ptx_regs[2].s64,thread,pI);
+         delete [] ptx_regs;
+      }
+      if (vector_spec == V4_TYPE) {
+         ptx_reg_t* ptx_regs = new ptx_reg_t[4]; 
+         thread->get_vector_operand_values(src1, ptx_regs, 4); 
+         mem->write(addr,size/8,&ptx_regs[0].s64,thread,pI);
+         mem->write(addr+size/8,size/8,&ptx_regs[1].s64,thread,pI);
+         mem->write(addr+2*size/8,size/8,&ptx_regs[2].s64,thread,pI);
+         mem->write(addr+3*size/8,size/8,&ptx_regs[3].s64,thread,pI);
+         delete [] ptx_regs;
+      }
+   }
+   }
+   //printf("writing result to addres %x\n", addr);
+   thread->m_last_effective_address.set(addr);
+   thread->m_last_memory_space = space; 
+}
+
+void st_impl( const ptx_instruction *pI, ptx_thread_info *thread ) {
+   store_func(pI, thread);
+}
+
+void stv_impl( const ptx_instruction *pI, ptx_thread_info *thread ) {
+   store_func(pI, thread);
+}
+
+void stp_impl( const ptx_instruction *pI, ptx_thread_info *thread ) 
+{
+   unsigned pixelSize = g_renderData.getPixelSizeSim();
+   //const operand_info &src1 = pI->src1(); //may be scalar or vector of regs
+   memory_space_t space = pI->get_space();
+   unsigned uniqueThreadId = thread->get_uid_in_kernel();
+   void* stream = thread->get_kernel_info()->get_stream();
+   uint64_t posX = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_UINT_POS, 0, -1, -1, stream).u64;
+   uint64_t posY = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_UINT_POS, 1, -1, -1, stream).u64;
+   addr_t addr = g_renderData.getFramebufferFragmentAddr(posX, posY, pixelSize);
+
+  //  thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_st(space);
+   thread->m_last_effective_address.set(addr);
+   thread->m_last_memory_space = space;
+}
+
+
+void ztest_impl( const ptx_instruction *pI, ptx_thread_info *thread )
+{
+   const operand_info &dst = pI->dst();
+   unsigned type = pI->get_type();
+   ptx_reg_t data;
+   unsigned uniqueThreadId = thread->get_uid_in_kernel();
+   void* stream = thread->get_kernel_info()->get_stream();
+   addr_t addr = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_DEPTH_ADDR, 1, -1, -1, stream).u64;
+
+  //  thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_ld(z_space);
+   thread->m_last_effective_address.set(addr);
+   memory_space_t space = pI->get_space();
+   thread->m_last_memory_space = space; 
+}
+
+void zwrite_impl( const ptx_instruction *pI, ptx_thread_info *thread )
+{
+   memory_space_t space = pI->get_space();
+   ptx_reg_t data;
+   unsigned uniqueThreadId = thread->get_uid_in_kernel();
+   void* stream = thread->get_kernel_info()->get_stream();
+   addr_t addr = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_DEPTH_ADDR, 1, -1, -1, stream).u64;
+   uint64_t posZ = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_UINT_POS, 2, -1, -1, stream).u64;
+   unsigned size = g_renderData.getDepthSize();
+   ptx_reg_t dst;
+   dst.u32 = 0;
+   dst.u16 = 0;
+   if(size == 2){
+      dst.u16 = (uint16_t) posZ;
+   } else if(size == 4){
+      dst.u32 = (uint32_t) posZ;
+   } else assert(0);
+
+   thread->set_builtin_dst(dst, size);
+  //  thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_st(z_space);
+   // FIXME: This is just for counter in gem5. Assuming this is already recorded in the gpgpu-sim?
+   thread->m_last_effective_address.set(addr);
+   thread->m_last_memory_space = space;
+}
+
+void frc_impl( const ptx_instruction *pI, ptx_thread_info *thread ) 
+{ 
+   ptx_reg_t a, d;
+   const operand_info &dst  = pI->dst();
+   const operand_info &src1 = pI->src1();
+
+   unsigned i_type = pI->get_type();
+   a = thread->get_operand_value(src1, dst, i_type, thread, 1);
+
+
+   switch ( i_type ) {
+   case F32_TYPE: d.f32 = floor(a.f32); break;
+   case F64_TYPE: case FF64_TYPE: d.f64 = floor(a.f64); break;
+   default:
+      printf("Execution error: type mismatch with instruction\n");
+      assert(0);
+      break;
+   }
+
+   thread->set_operand_value(dst,d, i_type, thread, pI);
+}
+
+void blend_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
+    unsigned pixelSize = g_renderData.getPixelSizeSim();
+    unsigned uniqueThreadId = thread->get_uid_in_kernel();
+    void* stream = thread->get_kernel_info()->get_stream();
+    uint64_t posX = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_UINT_POS, 0, -1, -1, stream).u64;
+    uint64_t posY = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_UINT_POS, 1, -1, -1, stream).u64;
+    addr_t addr = g_renderData.getFramebufferFragmentAddr(posX, posY, pixelSize);
+    memory_space_t space = pI->get_space();
+
+    // thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_ld(space);
+    // FIXME: This is just for counter in gem5. Assuming this is already recorded in the gpgpu-sim?
+    thread->m_last_effective_address.set(addr);
+    thread->m_last_memory_space = space; 
+}
+
+void printf_impl( const ptx_instruction *pI, ptx_thread_info *thread ) 
+{
+   const operand_info &dst  = pI->dst();  
+   const operand_info &src1 = pI->src1();
+   unsigned i_type = pI->get_type();
+   ptx_reg_t number = thread->get_operand_value(dst, dst, i_type, thread, 1);
+   ptx_reg_t value = thread->get_operand_value(src1, dst, i_type, thread, 1);
+   unsigned uniqueThreadId = thread->get_uid_in_kernel();
+
+   switch( i_type ) {
+      case S8_TYPE:
+      case S16_TYPE:
+      case S32_TYPE:
+      case S64_TYPE:
+      case U8_TYPE:
+      case U16_TYPE:
+      case U32_TYPE:
+      case B8_TYPE:
+      case B16_TYPE:
+      case B32_TYPE:
+      case U64_TYPE:
+      case B64_TYPE:
+         printf("GPGPU-Sim PTX: printf(%d, tid=%d) ==> (0x%llx = %d)\n", number.u32, uniqueThreadId, value.u64, value.u64);
+         break;
+      case F16_TYPE:
+      case F32_TYPE:
+      case F64_TYPE:
+      case FF64_TYPE:
+         printf("GPGPU-Sim PTX: printf(%d, tid=%d) ==> %f\n", number.u32, uniqueThreadId, value.f64);
+         break;
+      default:
+         assert(0); break;
+      }
 }

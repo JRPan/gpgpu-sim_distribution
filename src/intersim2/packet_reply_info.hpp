@@ -47,8 +47,8 @@ public:
 
 private:
 
-  static stack<PacketReplyInfo*> _all;
-  static stack<PacketReplyInfo*> _free;
+  static std::stack<PacketReplyInfo*> _all;
+  static std::stack<PacketReplyInfo*> _free;
 
   PacketReplyInfo() {}
   ~PacketReplyInfo() {}

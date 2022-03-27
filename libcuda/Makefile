@@ -70,7 +70,7 @@ ifeq ($(GNUC_CPP0X), 1)
     CXXFLAGS = -std=c++0x
 endif
 
-
+include /home/pan251/accel-sim-framework/gpu-simulator/gpgpu-sim/src/graphics/Makefile.include
 CPP = g++ $(SNOW)
 CC = gcc $(SNOW)
 CREATELIBRARY    =  1

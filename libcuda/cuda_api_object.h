@@ -15,9 +15,9 @@
 
 typedef std::list<gpgpu_ptx_sim_arg> gpgpu_ptx_sim_arg_list_t;
 
-#ifndef OPENGL_SUPPORT
-typedef unsigned long GLuint;
-#endif
+// #ifndef OPENGL_SUPPORT
+// typedef unsigned long GLuint;
+// #endif
 
 struct glbmap_entry {
   GLuint m_bufferObj;

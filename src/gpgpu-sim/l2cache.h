@@ -178,6 +178,7 @@ class memory_sub_partition {
   unsigned invalidateL2();
 
   // interface to L2_dram_queue
+  bool full_for_request(mem_fetch *mf) const;
   bool L2_dram_queue_empty() const;
   class mem_fetch *L2_dram_queue_top() const;
   void L2_dram_queue_pop();
@@ -187,8 +188,20 @@ class memory_sub_partition {
   void dram_L2_queue_push(class mem_fetch *mf);
 
   void visualizer_print(gzFile visualizer_file);
-  void print_cache_stat(unsigned &accesses, unsigned &misses) const;
+  void print_cache_stat(unsigned &accesses, unsigned &misses,
+                        unsigned &C_accesses, unsigned &C_misses,
+                        unsigned &Z_WB_accesses, unsigned &Z_WB_misses,
+                        unsigned &Z_read_accesses,
+                        unsigned &Z_read_misses) const;
+  void print_z_unit_stat(unsigned &accesses, unsigned &misses,
+                         unsigned &depthColorWrites,
+                         unsigned &blendingColorWrites) const;
   void print(FILE *fp) const;
+  void z_unit_cycle(unsigned cycle) {
+    printf("JR - z_unit_cycle - do nothing\n");
+    fflush(stdout);
+    //		m_z_unit->cycle(cycle);
+  }
 
   void accumulate_L2cache_stats(class cache_stats &l2_stats) const;
   void get_L2cache_sub_stats(struct cache_sub_stats &css) const;
@@ -211,6 +224,8 @@ class memory_sub_partition {
   class L2interface *m_L2interface;
   class gpgpu_sim *m_gpu;
   partition_mf_allocator *m_mf_allocator;
+  class z_unit_interface *m_z_unit_interface;
+  unsigned m_directColorWrites;
 
   // model delay of ROP units with a fixed latency
   struct rop_delay_t {
@@ -218,6 +233,13 @@ class memory_sub_partition {
     class mem_fetch *req;
   };
   std::queue<rop_delay_t> m_rop;
+
+  // model DRAM access scheduler latency (fixed latency between L2 and DRAM)
+  struct dram_delay_t {
+    unsigned long long ready_cycle;
+    class mem_fetch *req;
+  };
+  std::queue<dram_delay_t> m_dram_latency_queue;
 
   // these are various FIFOs between units within a memory partition
   fifo_pipeline<mem_fetch> *m_icnt_L2_queue;
@@ -233,6 +255,10 @@ class memory_sub_partition {
   std::set<mem_fetch *> m_request_tracker;
 
   friend class L2interface;
+  friend class L2interface;
+  friend class z_unit_interface;
+
+  void cycle_gpgpusim_dram();
 
   std::vector<mem_fetch *> breakdown_request_to_sector_requests(mem_fetch *mf);
 
@@ -257,6 +283,24 @@ class L2interface : public mem_fetch_interface {
     mf->set_status(IN_PARTITION_L2_TO_DRAM_QUEUE, 0 /*FIXME*/);
     m_unit->m_L2_dram_queue->push(mf);
   }
+
+ private:
+  memory_sub_partition *m_unit;
+};
+
+class z_unit_interface : public mem_fetch_interface {
+ public:
+  z_unit_interface(memory_sub_partition *unit) { m_unit = unit; }
+  virtual bool full(unsigned size, bool write) const {
+    // assume read and write packets all same size
+    return m_unit->m_icnt_L2_queue->full();
+  }
+  virtual void push(mem_fetch *mf) {
+    mf->set_status(IN_PARTITION_L2_TO_DRAM_QUEUE, 0);
+    m_unit->m_icnt_L2_queue->push(mf);
+  }
+  bool reply_queue_full() { return m_unit->m_L2_icnt_queue->full(); }
+  void reply_queue_push(mem_fetch *mf) { m_unit->m_L2_icnt_queue->push(mf); }
 
  private:
   memory_sub_partition *m_unit;

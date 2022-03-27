@@ -233,8 +233,8 @@ protected:
   unsigned long long _cur_pid;
   int _time;
 
-  set<unsigned long long> _flits_to_watch;
-  set<unsigned long long> _packets_to_watch;
+  std::set<unsigned long long> _flits_to_watch;
+  std::set<unsigned long long> _packets_to_watch;
 
   bool _print_csv_results;
 

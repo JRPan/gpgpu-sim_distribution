@@ -428,7 +428,10 @@ memory_sub_partition::memory_sub_partition(unsigned sub_partition_id,
 
   char L2c_name[32];
   snprintf(L2c_name, 32, "L2_bank_%03d", m_id);
+  char Zc_name[32];
+  snprintf(Zc_name, 32, "Z_Cache_bank_%03d", m_id);
   m_L2interface = new L2interface(this);
+  m_z_unit_interface = new z_unit_interface(this);
   m_mf_allocator = new partition_mf_allocator(config);
 
   if (!m_config->m_L2_config.disabled())
@@ -598,6 +601,10 @@ bool memory_sub_partition::full(unsigned size) const {
   return m_icnt_L2_queue->is_avilable_size(size);
 }
 
+bool memory_sub_partition::full_for_request(mem_fetch *mf) const {
+  return m_icnt_L2_queue->full();
+}
+
 bool memory_sub_partition::L2_dram_queue_empty() const {
   return m_L2_dram_queue->empty();
 }
@@ -616,10 +623,14 @@ void memory_sub_partition::dram_L2_queue_push(class mem_fetch *mf) {
   m_dram_L2_queue->push(mf);
 }
 
-void memory_sub_partition::print_cache_stat(unsigned &accesses,
-                                            unsigned &misses) const {
+void memory_sub_partition::print_cache_stat(
+    unsigned &accesses, unsigned &misses, unsigned &C_accesses,
+    unsigned &C_misses, unsigned &Z_WB_accesses, unsigned &Z_WB_misses,
+    unsigned &Z_read_accesses, unsigned &Z_read_misses) const {
   FILE *fp = stdout;
-  if (!m_config->m_L2_config.disabled()) m_L2cache->print(fp, accesses, misses);
+  if (!m_config->m_L2_config.disabled())
+    m_L2cache->print(fp, accesses, misses, C_accesses, C_misses, Z_WB_accesses,
+                     Z_WB_misses, Z_read_accesses, Z_read_misses);
 }
 
 void memory_sub_partition::print(FILE *fp) const {

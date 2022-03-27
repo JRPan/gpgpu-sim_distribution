@@ -49,7 +49,7 @@
 InterconnectInterface* InterconnectInterface::New(const char* const config_file)
 {
   if (! config_file ) {
-    cout << "Interconnect Requires a configfile" << endl;
+    std::cout << "Interconnect Requires a configfile" << endl;
     exit (-1);
   }
   InterconnectInterface* icnt_interface = new InterconnectInterface();
@@ -90,11 +90,11 @@ void InterconnectInterface::CreateInterconnect(unsigned n_shader, unsigned n_mem
   gPrintActivity = (_icnt_config->GetInt("print_activity") > 0);
   gTrace = (_icnt_config->GetInt("viewer_trace") > 0);
 
-  string watch_out_file = _icnt_config->GetStr( "watch_out" );
+  std::string watch_out_file = _icnt_config->GetStr( "watch_out" );
   if(watch_out_file == "") {
     gWatchOut = NULL;
   } else if(watch_out_file == "-") {
-    gWatchOut = &cout;
+    gWatchOut = &std::cout;
   } else {
     gWatchOut = new ofstream(watch_out_file.c_str());
   }
@@ -154,9 +154,9 @@ void InterconnectInterface::Push(unsigned input_deviceID, unsigned output_device
   int output_icntID = _node_map[output_deviceID];
   int input_icntID = _node_map[input_deviceID];
 
-#if 0
-  cout<<"Call interconnect push input: "<<input<<" output: "<<output<<endl;
-#endif
+// #if 0
+//   std::cout<<"Call interconnect push input: "<<input<<" output: "<<output<<endl;
+// #endif
 
   //TODO: move to _IssuePacket
   //TODO: create a Inject and wrap _IssuePacket and _GeneratePacket
@@ -183,7 +183,7 @@ void InterconnectInterface::Push(unsigned input_deviceID, unsigned output_device
     case WRITE_ACK:     packet_type = Flit::WRITE_REPLY    ;break;
     default:
     	{
-    		cout<<"Type "<<mf->get_type()<<" is undefined!"<<endl;
+    		std::cout<<"Type "<<mf->get_type()<<" is undefined!"<<endl;
     		assert (0 && "Type is undefined");
     	}
   }
@@ -192,7 +192,7 @@ void InterconnectInterface::Push(unsigned input_deviceID, unsigned output_device
   _traffic_manager->_GeneratePacket( input_icntID, -1, 0 /*class*/, _traffic_manager->_time, subnet, n_flits, packet_type, data, output_icntID);
 
 #if DOUB
-  cout <<"Traffic[" << subnet << "] (mapped) sending form "<< input_icntID << " to " << output_icntID << endl;
+  std::cout <<"Traffic[" << subnet << "] (mapped) sending form "<< input_icntID << " to " << output_icntID << endl;
 #endif
 //  }
 }
@@ -200,9 +200,9 @@ void InterconnectInterface::Push(unsigned input_deviceID, unsigned output_device
 void* InterconnectInterface::Pop(unsigned deviceID)
 {
   int icntID = _node_map[deviceID];
-#if DEBUG
-  cout<<"Call interconnect POP  " << output<<endl;
-#endif
+// #if DEBUG
+//   std::cout<<"Call interconnect POP  " << output<<endl;
+// #endif
 
   void* data = NULL;
 
@@ -354,7 +354,7 @@ int InterconnectInterface::GetIcntTime() const
   return _traffic_manager->getTime();
 }
 
-Stats* InterconnectInterface::GetIcntStats(const string &name) const
+Stats* InterconnectInterface::GetIcntStats(const std::string &name) const
 {
   return _traffic_manager->getStats(name);
 }
@@ -483,25 +483,25 @@ void InterconnectInterface::_CreateNodeMap(unsigned n_shader, unsigned n_mem, un
 
 void InterconnectInterface::_DisplayMap(int dim,int count)
 {
-  cout << "GPGPU-Sim uArch: interconnect node map (shaderID+MemID to icntID)" << endl;
-  cout << "GPGPU-Sim uArch: Memory nodes ID start from index: " << _n_shader << endl;
-  cout << "GPGPU-Sim uArch: ";
+  std::cout << "GPGPU-Sim uArch: interconnect node map (shaderID+MemID to icntID)" << endl;
+  std::cout << "GPGPU-Sim uArch: Memory nodes ID start from index: " << _n_shader << endl;
+  std::cout << "GPGPU-Sim uArch: ";
   for (int i = 0;i < count; i++) {
-    cout << setw(4) << _node_map[i];
+    std::cout << setw(4) << _node_map[i];
     if ((i+1)%dim == 0 && i != count-1)
-      cout << endl << "GPGPU-Sim uArch: ";
+      std::cout << endl << "GPGPU-Sim uArch: ";
   }
-  cout << endl;
+  std::cout << endl;
 
-  cout << "GPGPU-Sim uArch: interconnect node reverse map (icntID to shaderID+MemID)" << endl;
-  cout << "GPGPU-Sim uArch: Memory nodes start from ID: " << _n_shader << endl;
-  cout << "GPGPU-Sim uArch: ";
+  std::cout << "GPGPU-Sim uArch: interconnect node reverse map (icntID to shaderID+MemID)" << endl;
+  std::cout << "GPGPU-Sim uArch: Memory nodes start from ID: " << _n_shader << endl;
+  std::cout << "GPGPU-Sim uArch: ";
   for (int i = 0;i < count; i++) {
-    cout << setw(4) << _reverse_node_map[i];
+    std::cout << setw(4) << _reverse_node_map[i];
     if ((i+1)%dim == 0 && i != count-1)
-      cout << endl << "GPGPU-Sim uArch: ";
+      std::cout << endl << "GPGPU-Sim uArch: ";
   }
-  cout << endl;
+  std::cout << endl;
 }
 
 void* InterconnectInterface::_BoundaryBufferItem::PopPacket()

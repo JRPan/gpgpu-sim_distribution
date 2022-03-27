@@ -54,6 +54,12 @@ memory_stats_t::memory_stats_t(unsigned n_shader,
   assert(shader_config->m_valid);
 
   unsigned i, j;
+  readBytesAccessedPerBank =
+      (unsigned int **)calloc(mem_config->m_n_mem, sizeof(unsigned int *));
+  writeBytesAccessedPerBank =
+      (unsigned int **)calloc(mem_config->m_n_mem, sizeof(unsigned int *));
+  activatesSentPerBank =
+      (unsigned int **)calloc(mem_config->m_n_mem, sizeof(unsigned int *));
 
   concurrent_row_access =
       (unsigned int **)calloc(mem_config->m_n_mem, sizeof(unsigned int *));
@@ -67,6 +73,18 @@ memory_stats_t::memory_stats_t(unsigned n_shader,
       (unsigned int **)calloc(mem_config->m_n_mem, sizeof(unsigned int *));
 
   for (unsigned i = 0; i < mem_config->m_n_mem; i++) {
+    readBytesAccessedPerBank[i] =
+        (unsigned int *)calloc(mem_config->nbk, sizeof(unsigned int));
+    writeBytesAccessedPerBank[i] =
+        (unsigned int *)calloc(mem_config->nbk, sizeof(unsigned int));
+    activatesSentPerBank[i] =
+        (unsigned int *)calloc(mem_config->nbk, sizeof(unsigned int));
+
+    for (unsigned j = 0; j < mem_config->nbk; j++) {
+      readBytesAccessedPerBank[i][j] = 0;
+      writeBytesAccessedPerBank[i][j] = 0;
+      activatesSentPerBank[i][j] = 0;
+    }
     concurrent_row_access[i] =
         (unsigned int *)calloc(mem_config->nbk, sizeof(unsigned int));
     row_access[i] =
@@ -231,6 +249,11 @@ void memory_stats_t::memlatstat_dram_access(mem_fetch *mf) {
       totalbankwrites[dram_id][bank] +=
           ceil(mf->get_data_size() / m_memory_config->dram_atom_size);
     } else {
+      if (mf->get_sid() <
+          m_n_shader) {  // do not count L2 reads by write allocate requests
+                         // caused by the Z-unit cache writebacks
+        bankreads[mf->get_sid()][dram_id][bank]++;
+      }
       bankreads[mf->get_sid()][dram_id][bank]++;
       shader_mem_acc_log(mf->get_sid(), dram_id, bank, 'r');
       totalbankreads[dram_id][bank] +=
@@ -268,7 +291,8 @@ void memory_stats_t::memlatstat_lat_pw() {
   }
 }
 
-void memory_stats_t::memlatstat_print(unsigned n_mem, unsigned gpu_mem_n_bk) {
+void memory_stats_t::memlatstat_print(unsigned n_mem, unsigned gpu_mem_n_bk,
+                                      unsigned bytesTransferedPerControlCycle) {
   unsigned i, j, k, l, m;
   unsigned max_bank_accesses, min_bank_accesses, max_chip_accesses,
       min_chip_accesses;
@@ -336,6 +360,38 @@ void memory_stats_t::memlatstat_print(unsigned n_mem, unsigned gpu_mem_n_bk) {
         printf("%9d ", max_servicetime2samerow[i][j]);
       }
       printf("\n");
+    }
+
+    /*Average bytes read per activate*/
+    printf("activates, read and written bytes per row\n");
+
+    for (i = 0; i < n_mem; i++) {
+      float totalActivates = 0;
+      float totalAcc = 0;
+      printf(
+          "\n\n Channel %d \n ---------------------------------------------\n",
+          i);
+      for (unsigned j = 0; j < gpu_mem_n_bk; j++) {
+        totalActivates += activatesSentPerBank[i][j];
+        totalAcc = totalAcc + readBytesAccessedPerBank[i][j] +
+                   writeBytesAccessedPerBank[i][j];
+        printf("Bank %d activates =%d\n", j, activatesSentPerBank[i][j]);
+        printf("Bank %d bytes read =%d\n", j, readBytesAccessedPerBank[i][j]);
+        printf("Bank %d bytes written =%d\n", j,
+               writeBytesAccessedPerBank[i][j]);
+        float accessesPerActivate = ((float)(readBytesAccessedPerBank[i][j] +
+                                             writeBytesAccessedPerBank[i][j])) /
+                                    activatesSentPerBank[i][j];
+        printf("Bank %d avg bytes accessed per activate=%f\n", j,
+               accessesPerActivate);
+        printf("Bank %d avg controller transfer cycles per activate=%f\n", j,
+               (accessesPerActivate / (bytesTransferedPerControlCycle)));
+        printf("\n");
+      }
+      printf("Channel avg accesses per activate = %f\n",
+             totalAcc / totalActivates);
+      printf("Channel avg controller transfer cycles per activate=%f\n",
+             totalAcc / totalActivates / bytesTransferedPerControlCycle);
     }
 
     /*AVERAGE ROW ACCESSES PER ACTIVATE*/

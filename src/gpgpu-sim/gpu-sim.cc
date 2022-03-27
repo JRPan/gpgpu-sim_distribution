@@ -129,6 +129,8 @@ void power_config::reg_options(class OptionParser *opp) {
 }
 
 void memory_config::reg_options(class OptionParser *opp) {
+  option_parser_register(opp, "-gpgpu_dram_enable_trace", OPT_BOOL,
+                         &trace_enabled, "Printing memory command trace", "0");
   option_parser_register(opp, "-gpgpu_perf_sim_memcpy", OPT_BOOL,
                          &m_perf_sim_memcpy, "Fill the L2 cache on memcpy",
                          "1");
@@ -529,6 +531,12 @@ void shader_core_config::reg_options(class OptionParser *opp) {
       "scheduler_prioritization_type"
       "Default: gto",
       "gto");
+  // option_parser_register(
+  //     opp, "-gpgpu_fetch_decode_width", OPT_INT32, &gpgpu_fetch_decode_width,
+  //     "Number of instructions to fetch per cycle (default=2)", "2");
+  option_parser_register(
+      opp, "-debug_texture_accesses", OPT_BOOL, &gpgpu_debug_texture_accesses,
+      "Texture memory accesses debug mode (1=On, 0=Off)", "0");
 
   option_parser_register(
       opp, "-gpgpu_concurrent_kernel_sm", OPT_BOOL, &gpgpu_concurrent_kernel_sm,
@@ -555,6 +563,109 @@ void shader_core_config::reg_options(class OptionParser *opp) {
                            "OC_SPEC>:<OC_EX_SPEC>,<NAME>}",
                            "0,4,4,4,4,BRA");
   }
+}
+
+void gpu_graphics_config::reg_options(OptionParser *opp) {
+  option_parser_register(
+      opp, "-graphics_standalone_mode", OPT_BOOL, &graphics_standalone_mode,
+      "graphics: running in standalone mode (default=False)", "0");
+  option_parser_register(
+      opp, "-output_dir", OPT_CSTR, &output_dir,
+      "graphics: where to write graphics shaders and frame dumps",
+      "gpgpusim_out");
+  option_parser_register(
+      opp, "-graphics_blend_in_shader", OPT_UINT32, &use_shader_blending,
+      "Blend inside the shader core (1) or the Z-unit(0) (default 0)", "0");
+  option_parser_register(
+      opp, "-graphics_depth_in_shader", OPT_UINT32, &use_shader_depth_test,
+      "Depth test inside the shader core (1) or the Z-unit(0) (default 0)",
+      "0");
+  option_parser_register(
+      opp, "-graphics_start_frame", OPT_UINT32, &start_frame,
+      "graphics: frame when performance simulation starts (default MAX_UINT32)",
+      "-1");
+  option_parser_register(
+      opp, "-graphics_end_frame", OPT_UINT32, &end_frame,
+      "graphics: frame when performance simulation stops (default MAX_UINT32)",
+      "-1");
+
+  option_parser_register(
+      opp, "-graphics_start_call", OPT_INT32, &start_call,
+      "graphics: drawcall when performance simulation starts (default -1)",
+      "-1");
+  option_parser_register(opp, "-graphics_end_call", OPT_UINT32, &end_call,
+                         "graphics: drawcall when performance simulation stops "
+                         "(default MAX_UINT32)",
+                         "-1");
+  // graphics checkpointing
+  option_parser_register(
+      opp, "-graphics_checkpoint_start", OPT_UINT32, &cpt_start_frame,
+      "graphics: checkpointing start frame (default MAX_UINT32)", "-1");
+  option_parser_register(
+      opp, "-graphics_checkpoint_end", OPT_UINT32, &cpt_end_frame,
+      "graphics: checkpointing end frame (default MAX_UINT32)", "-1");
+  option_parser_register(
+      opp, "-graphics_checkpoint_period", OPT_UINT32, &cpt_period,
+      "graphics: checkpointing peroid (default MAX_UINT32)", "0");
+
+  option_parser_register(opp, "-graphics_skip_checkpoint_frames", OPT_BOOL,
+                         &skip_cpt_frames,
+                         "graphics: skip rendering gem5 checkpoint loading "
+                         "frames (1=skip, 0=render, default=0 )",
+                         "0");
+
+  option_parser_register(
+      opp, "-graphics_raster_tile_H", OPT_UINT32, &raster_tile_H,
+      "graphics: the height of the rasterization tile (default 4)", "4");
+  option_parser_register(
+      opp, "-graphics_raster_tile_W", OPT_UINT32, &raster_tile_W,
+      "graphics: the width of the rasterization tile (default 8)", "8");
+  option_parser_register(
+      opp, "-graphics_raster_block_H", OPT_UINT32, &raster_block_H,
+      "graphics: the height of the rasterization block (default 16)", "16");
+  option_parser_register(
+      opp, "-graphics_raster_block_W", OPT_UINT32, &raster_block_W,
+      "graphics: the width of the rasterization block (default 16)", "16");
+  option_parser_register(opp, "-graphics_setup_delay", OPT_UINT32, &setup_delay,
+                         "graphics: setup queue delay", "10");
+  option_parser_register(opp, "-graphics_setup_q_len", OPT_UINT32, &setup_q_len,
+                         "setup queue length", "16");
+  option_parser_register(opp, "-graphics_coarse_tiles", OPT_UINT32,
+                         &coarse_tiles, "coarse tiles processed per cycle",
+                         "2");
+  option_parser_register(opp, "-graphics_fine_tiles", OPT_UINT32, &fine_tiles,
+                         "fine tiles processed per cycle", "2");
+  option_parser_register(opp, "-graphics_hiz_tiles", OPT_UINT32, &hiz_tiles,
+                         "hiz tiles processed per cycle", "2");
+  option_parser_register(opp, "-graphics_tc_engines", OPT_UINT32, &tc_engines,
+                         "number of tc engines per cluster", "4");
+  option_parser_register(opp, "-graphics_tc_bins", OPT_UINT32, &tc_bins,
+                         "number of tc bins per engine", "4");
+  option_parser_register(opp, "-graphics_tc_h", OPT_UINT32, &tc_h,
+                         "tc bin height", "4");
+  option_parser_register(opp, "-graphics_tc_w", OPT_UINT32, &tc_w,
+                         "tc bin width", "4");
+  option_parser_register(opp, "-graphics_tc_block_dim", OPT_UINT32,
+                         &tc_block_dim, "tc tile blocks dim", "2");
+  option_parser_register(opp, "-graphics_tc_thresh", OPT_UINT32, &tc_thresh,
+                         "tc wait threshold", "10");
+  option_parser_register(opp, "-graphics_vert_wg_size", OPT_UINT32,
+                         &vert_wg_size, "graphics vertices workgroup size",
+                         "256");
+  option_parser_register(opp, "-graphics_frag_wg_size", OPT_UINT32,
+                         &frag_wg_size, "graphics fragments workgroup size",
+                         "256");
+  option_parser_register(opp, "-graphics_pvb_size", OPT_UINT32, &pvb_size,
+                         "PVB size in bytes", "4096");
+  option_parser_register(opp, "-graphics_core_prim_pipe_size", OPT_UINT32,
+                         &core_prim_pipe_size,
+                         "Depth of core prims buffer in primitives", "2");
+  option_parser_register(
+      opp, "-graphics_core_prim_delay", OPT_UINT32, &core_prim_delay,
+      "Core prim bounding-box calculations delay in cycles", "4");
+  option_parser_register(opp, "-graphics_core_prim_warps", OPT_UINT32,
+                         &core_prim_warps, "How many prim warps can core hold",
+                         "2");
 }
 
 void gpgpu_sim_config::reg_options(option_parser_t opp) {
@@ -651,6 +762,7 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
                          "The memory partition which is printed using "
                          "MEMPART_DPRINTF. Default -1 (i.e. all)",
                          "-1");
+  gpu_graphics_configs.reg_options(opp);
   gpgpu_ctx->stats->ptx_file_line_stats_options(opp);
 
   // Jin: kernel launch latency
@@ -735,7 +847,8 @@ bool gpgpu_sim::get_more_cta_left() const {
   if (hit_max_cta_count()) return false;
 
   for (unsigned n = 0; n < m_running_kernels.size(); n++) {
-    if (m_running_kernels[n] && !m_running_kernels[n]->no_more_ctas_to_run())
+    if (m_running_kernels[n] && (!m_running_kernels[n]->no_more_ctas_to_run() ||
+                                 !m_running_kernels[n]->isDrawCallDone()))
       return true;
   }
   return false;
@@ -995,6 +1108,7 @@ bool gpgpu_sim::active() {
   ;
   if (icnt_busy()) return true;
   if (get_more_cta_left()) return true;
+  if (g_renderData.gpgpusim_active()) return true;
   return false;
 }
 
@@ -1334,8 +1448,9 @@ void gpgpu_sim::gpu_print_stat() {
 #endif
 
   // performance counter that are not local to one shader
-  m_memory_stats->memlatstat_print(m_memory_config->m_n_mem,
-                                   m_memory_config->nbk);
+  m_memory_stats->memlatstat_print(
+      m_memory_config->m_n_mem, m_memory_config->nbk,
+      m_memory_config->busW * m_memory_config->data_command_freq_ratio);
   for (unsigned i = 0; i < m_memory_config->m_n_mem; i++)
     m_memory_partition_unit[i]->print(stdout);
 
@@ -1379,6 +1494,10 @@ void gpgpu_sim::gpu_print_stat() {
       l2_stats.print_fail_stats(stdout, "L2_cache_stats_fail_breakdown");
       total_l2_css.print_port_stats(stdout, "L2_cache");
     }
+  }
+
+  for (unsigned i = 0; i < m_config.num_cluster(); i++) {
+    m_cluster[i]->print_graphics_stats(stdout);
   }
 
   if (m_config.gpgpu_cflog_interval != 0) {
@@ -1877,6 +1996,7 @@ void gpgpu_sim::cycle() {
 #endif
 
     issue_block2core();
+    g_renderData.gpgpusim_cycle();
     decrement_kernel_latency();
 
     // Depending on configuration, invalidate the caches once all of threads are
@@ -2059,4 +2179,15 @@ const shader_core_config *gpgpu_sim::getShaderCoreConfig() {
 
 const memory_config *gpgpu_sim::getMemoryConfig() { return m_memory_config; }
 
-simt_core_cluster *gpgpu_sim::getSIMTCluster() { return *m_cluster; }
+simt_core_cluster **gpgpu_sim::getSIMTCluster() { return m_cluster; }
+
+shader_core_ctx *gpgpu_sim::get_shader(int id) {
+  //    int clusters = m_config.m_shader_config.n_simt_clusters;
+  int shaders_per_cluster = m_config.m_shader_config.n_simt_cores_per_cluster;
+  int cluster = id / shaders_per_cluster;
+  int shader_in_cluster = id % shaders_per_cluster;
+  assert(shader_in_cluster < shaders_per_cluster);
+  assert(cluster < m_config.m_shader_config.n_simt_clusters);
+
+  return m_cluster[cluster]->get_core(shader_in_cluster);
+}

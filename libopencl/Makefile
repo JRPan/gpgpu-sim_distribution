@@ -71,6 +71,8 @@ CC = gcc
 CREATELIBRARY    =  1
 DEBUG ?= 0
 CCFLAGS = -O3 -g -Wall -fPIC $(GL)
+include /home/pan251/accel-sim-framework/gpu-simulator/gpgpu-sim/src/graphics/Makefile.include
+CCFLAGS += $(CXXFLAGS)
 ifeq ($(DEBUG),1)
 	CCFLAGS =  -Wall -g -fPIC $(GL)
 endif

@@ -42,6 +42,7 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include "graphics_models.h"
 
 //#include "../cuda-sim/ptx.tab.h"
 
@@ -82,6 +83,8 @@ enum exec_unit_type_t {
   TENSOR = 6,
   SPECIALIZED = 7
 };
+
+class graphics_simt_pipeline;
 
 class thread_ctx_t {
  public:
@@ -909,6 +912,7 @@ class opndcoll_rfu_t {  // operand collector based register file unit
     }
     unsigned get_sp_op() const { return m_warp->sp_op; }
     unsigned get_id() const { return m_cuid; }  // returns CU hw id
+    unsigned get_inst_uniq_id() { return m_warp->get_uid(); }
     unsigned get_reg_id() const { return m_reg_id; }
 
     // modifiers
@@ -1372,6 +1376,9 @@ class ldst_unit : public pipelined_simd_unit {
   void print(FILE *fout) const;
   void print_cache_stats(FILE *fp, unsigned &dl1_accesses,
                          unsigned &dl1_misses);
+  void print_cache_stats(FILE *fp, unsigned &dl1_accesses, unsigned &dl1_misses,
+                         unsigned &l1c_accesses, unsigned &l1c_misses,
+                         unsigned &l1t_accesses, unsigned &l1t_misses);
   void get_cache_stats(unsigned &read_accesses, unsigned &write_accesses,
                        unsigned &read_misses, unsigned &write_misses,
                        unsigned cache_type);
@@ -1539,6 +1546,7 @@ class shader_core_config : public core_config {
     m_L1D_config.init(m_L1D_config.m_config_string, FuncCachePreferNone);
     gpgpu_cache_texl1_linesize = m_L1T_config.get_line_sz();
     gpgpu_cache_constl1_linesize = m_L1C_config.get_line_sz();
+    gpgpu_cache_datal1_linesize = m_L1D_config.get_line_sz();
     m_valid = true;
 
     m_specialized_unit_num = 0;
@@ -1767,6 +1775,7 @@ struct shader_core_stats_pod {
   int gpgpu_n_mem_const;
   int gpgpu_n_mem_read_global;
   int gpgpu_n_mem_write_global;
+  int gpgpu_n_mem_z_write;
   int gpgpu_n_mem_read_inst;
 
   int gpgpu_n_mem_l2_writeback;
@@ -2000,7 +2009,14 @@ class shader_core_ctx : public core_t {
   // accessors
   bool fetch_unit_response_buffer_full() const;
   bool ldst_unit_response_buffer_full() const;
-  unsigned get_not_completed() const { return m_not_completed; }
+  unsigned get_not_completed() const {
+    unsigned res = m_not_completed;
+    res += m_vert_warps.size();
+    res += m_prim_pipe.size();
+    res += m_curr_prim_batch.size();
+    res += m_pending_prim_batches;
+    return res;
+  }
   unsigned get_n_active_cta() const { return m_n_active_cta; }
   unsigned isactive() const {
     if (m_n_active_cta > 0)
@@ -2017,6 +2033,14 @@ class shader_core_ctx : public core_t {
 
   // accessors
   virtual bool warp_waiting_at_barrier(unsigned warp_id) const;
+  // void warp_reaches_barrier(warp_inst_t &inst);
+  // bool fence_unblock_needed(unsigned warp_id) {
+  //   return m_warp[warp_id].get_membar();
+  // }
+  // void complete_fence(unsigned warp_id) {
+  //   assert(m_warp[warp_id].get_membar());
+  //   m_warp[warp_id].clear_membar();
+  // }
   void get_pdom_stack_top_info(unsigned tid, unsigned *pc, unsigned *rpc) const;
   float get_current_occupancy(unsigned long long &active,
                               unsigned long long &total) const;
@@ -2039,6 +2063,9 @@ class shader_core_ctx : public core_t {
   const shader_core_config *get_config() const { return m_config; }
   void print_cache_stats(FILE *fp, unsigned &dl1_accesses,
                          unsigned &dl1_misses);
+  void print_cache_stats(FILE *fp, unsigned &dl1_accesses, unsigned &dl1_misses,
+                         unsigned &l1c_accesses, unsigned &l1c_misses,
+                         unsigned &l1t_accesses, unsigned &l1t_misses);
 
   void get_cache_stats(cache_stats &cs);
   void get_L1I_sub_stats(struct cache_sub_stats &css) const;
@@ -2205,8 +2232,10 @@ class shader_core_ctx : public core_t {
     m_stats->n_simt_to_mem[m_sid] += n_flits;
   }
   bool check_if_non_released_reduction_barrier(warp_inst_t &inst);
+  simt_core_cluster *get_cluster() { return m_cluster; }
 
  protected:
+  friend class ldst_unit;
   unsigned inactive_lanes_accesses_sfu(unsigned active_count, double latency) {
     return (((32 - active_count) >> 1) * latency) +
            (((32 - active_count) >> 3) * latency) +
@@ -2343,6 +2372,37 @@ class shader_core_ctx : public core_t {
   // the differnece between a warp_id and a dynamic_warp_id
   // is that the dynamic_warp_id is a running number unique to every warp
   // run on this shader, where the warp_id is the static warp slot.
+
+  // graphics components
+  struct vert_warp_t {
+    std::list<unsigned> warpTids;
+    const unsigned warp_id;
+    unsigned vert_count;
+    unsigned attrib_count;
+    vert_warp_t(unsigned wid, unsigned vc)
+        : warp_id(wid), vert_count(vc), attrib_count(0) {}
+  };
+
+  // struct to track primitive setup
+  struct primPipe_t {
+    const unsigned prim_id;
+    unsigned cycles;
+    const bool last_in_batch;
+    primPipe_t(unsigned pid, unsigned c, bool lib)
+        : prim_id(pid), cycles(c), last_in_batch(lib) {}
+  };
+
+  void process_prims();
+  void add_prims();
+
+  std::list<vert_warp_t> m_vert_warps;
+  std::list<primPipe_t> m_prim_pipe;
+  std::vector<unsigned> m_curr_prim_batch;
+  bool m_prim_batch_ready;
+  unsigned m_pending_prim_batches;
+  const unsigned m_max_prim_pipe_size;
+  const unsigned m_prim_delay;
+  const unsigned m_prim_warps;
   unsigned m_dynamic_warp_id;
 
   // Jin: concurrent kernels on a sm
@@ -2351,6 +2411,9 @@ class shader_core_ctx : public core_t {
   bool occupy_shader_resource_1block(kernel_info_t &kernel, bool occupy);
   void release_shader_resource_1block(unsigned hw_ctaid, kernel_info_t &kernel);
   int find_available_hwtid(unsigned int cta_size, bool occupy);
+
+  bool can_vert_write(unsigned warp_id, const warp_inst_t &inst);
+  void signal_attrib_done(unsigned warp_id, unsigned activeCount);
 
  private:
   unsigned int m_occupied_n_threads;
@@ -2399,6 +2462,7 @@ class simt_core_cluster {
                     const shader_core_config *config,
                     const memory_config *mem_config, shader_core_stats *stats,
                     memory_stats_t *mstats);
+  ~simt_core_cluster() { delete m_graphics_pipe; }
 
   void core_cycle();
   void icnt_cycle();
@@ -2441,6 +2505,15 @@ class simt_core_cluster {
   float get_current_occupancy(unsigned long long &active,
                               unsigned long long &total) const;
   virtual void create_shader_core_ctx() = 0;
+  void print_graphics_stats(FILE *ofile);
+
+  shader_core_ctx *get_core(int id_in_cluster) { return m_core[id_in_cluster]; }
+  void print_cache_stats(FILE *fp, unsigned &dl1_accesses, unsigned &dl1_misses,
+                         unsigned &l1c_accesses, unsigned &l1c_misses,
+                         unsigned &l1t_accesses, unsigned &l1t_misses) const;
+  unsigned get_cluster_id() { return m_cluster_id; };
+  graphics_simt_pipeline *getGraphicsPipeline() { return m_graphics_pipe; }
+  const shader_core_config *get_config() {return m_config;}
 
  protected:
   unsigned m_cluster_id;
@@ -2454,6 +2527,10 @@ class simt_core_cluster {
   unsigned m_cta_issue_next_core;
   std::list<unsigned> m_core_sim_order;
   std::list<mem_fetch *> m_response_fifo;
+
+  // graphics
+  friend graphics_simt_pipeline;
+  graphics_simt_pipeline *m_graphics_pipe;
 };
 
 class exec_simt_core_cluster : public simt_core_cluster {

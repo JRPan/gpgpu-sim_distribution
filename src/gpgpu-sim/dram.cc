@@ -26,6 +26,8 @@
 // CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
+#include <fstream>
+#include <sstream>
 
 #include "dram.h"
 #include "dram_sched.h"
@@ -43,6 +45,14 @@ int PRINT_CYCLE = 0;
 template class fifo_pipeline<mem_fetch>;
 template class fifo_pipeline<dram_req_t>;
 
+dram_t::~dram_t()
+{
+    if(m_config->trace_enabled){
+        dram_trace<<n_cmd<<",END,"<<0<<std::endl;
+        dram_trace.close();
+    }
+}
+
 dram_t::dram_t(unsigned int partition_id, const memory_config *config,
                memory_stats_t *stats, memory_partition_unit *mp,
                gpgpu_sim *gpu) {
@@ -51,6 +61,10 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
   m_stats = stats;
   m_config = config;
   m_gpu = gpu;
+
+  std::stringstream trace_file_name;
+  trace_file_name << "dram_trace_ch" << partition_id;
+  if (m_config->trace_enabled) dram_trace.open(trace_file_name.str().c_str());
 
   // rowblp
   access_num = 0;
@@ -136,6 +150,12 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
   bwutil = 0;
   max_mrqs = 0;
   ave_mrqs = 0;
+  avg_utilized_banks = 0;
+  avg_banks_in_window = 0;
+  avg_rows_in_window = 0;
+  percent_window_with_write = 0;
+  how_much_write_in_windows = 0;
+  pushCycles = 0;
 
   for (unsigned i = 0; i < 10; i++) {
     dram_util_bins[i] = 0;
@@ -151,6 +171,7 @@ dram_t::dram_t(unsigned int partition_id, const memory_config *config,
   n_req_partial = 0;
   ave_mrqs_partial = 0;
   bwutil_partial = 0;
+  cyclesWithRequestsInMem = 0;
 
   if (queue_limit())
     mrqq_Dist = StatCreate("mrqq_length", 1, queue_limit());
@@ -244,10 +265,52 @@ dram_req_t::dram_req_t(class mem_fetch *mf, unsigned banks,
 void dram_t::push(class mem_fetch *data) {
   assert(id == data->get_tlx_addr()
                    .chip);  // Ensure request is in correct memory partition
+  unsigned windowSize = m_config->gpgpu_frfcfs_dram_sched_queue_size;
+  std::map<unsigned int, bool>
+      requstedRowsStats[m_config->nbk];  // = new std::map<unsigned int,bool>
+                                         // [m_config->nbk];
+  if (touchedBanks.size() == windowSize) {
+    assert(touchedRows.size() == windowSize);
+    assert(isItWriteRequest.size() == windowSize);
+    std::map<unsigned int, bool> touched;
+
+    for (unsigned int i = 0; i < touchedBanks.size(); i++)
+      touched[touchedBanks[i]] = true;
+    unsigned int currentlyTouchedBanks = 0;
+    unsigned int currentlyTouchedRows = 0;
+    bool hasWrite = false;
+    unsigned int writesCount = 0;
+    for (unsigned int i = 0; i < windowSize; i++) {
+      if (touched[i]) currentlyTouchedBanks++;
+      if (isItWriteRequest[i]) {
+        hasWrite = true;
+        writesCount++;
+      }
+    }
+    if (hasWrite) {
+      percent_window_with_write++;
+      how_much_write_in_windows += writesCount;
+    }
+    avg_banks_in_window += currentlyTouchedBanks;
+
+    for (unsigned int i = 0; i < windowSize; i++)
+      if (!requstedRowsStats[touchedBanks[i]][touchedRows[i]]) {
+        currentlyTouchedRows++;
+        requstedRowsStats[touchedBanks[i]][touchedRows[i]] = true;
+      }
+    avg_rows_in_window += currentlyTouchedRows;
+    pushCycles++;
+    touchedBanks.erase(touchedBanks.begin());
+    touchedRows.erase(touchedRows.begin());
+    isItWriteRequest.erase(isItWriteRequest.begin());
+  }
 
   dram_req_t *mrq =
       new dram_req_t(data, m_config->nbk, m_config->dram_bnk_indexing_policy,
                      m_memory_partition_unit->get_mgpu());
+  touchedBanks.push_back(mrq->bk);
+  touchedRows.push_back(mrq->row);
+  isItWriteRequest.push_back(mrq->rw == WRITE);
 
   data->set_status(IN_PARTITION_MC_INTERFACE_QUEUE,
                    m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle);
@@ -285,6 +348,16 @@ void dram_t::scheduler_fifo() {
   a ^= b;
 
 void dram_t::cycle() {
+  bool anyRequestInBanks = false;
+  for (unsigned int i = 0; i < m_config->nbk; i++)
+    if (bk[i]->mrq) {
+      anyRequestInBanks = true;
+      avg_utilized_banks++;
+    }
+  if (anyRequestInBanks or !mrqq->empty() or
+      m_frfcfs_scheduler->num_pending() != 0) {
+    cyclesWithRequestsInMem++;
+  }
   if (!returnq->full()) {
     dram_req_t *cmd = rwq->pop();
     if (cmd) {
@@ -365,12 +438,16 @@ void dram_t::cycle() {
     if (bk[j]->mrq &&
         (((bk[j]->curr_row == bk[j]->mrq->row) && (bk[j]->mrq->rw == READ) &&
           (bk[j]->state == BANK_ACTIVE)))) {
+      if (m_config->trace_enabled)
+        dram_trace << n_cmd << ",RW," << j << std::endl;
       memory_pending_rw++;
       read_blp_rw++;
       bnkgrp_rw_found.set(grp);
     } else if (bk[j]->mrq &&
                (((bk[j]->curr_row == bk[j]->mrq->row) &&
                  (bk[j]->mrq->rw == WRITE) && (bk[j]->state == BANK_ACTIVE)))) {
+      if (m_config->trace_enabled)
+        dram_trace << n_cmd << ",RW," << j << std::endl;
       memory_pending_rw++;
       write_blp_rw++;
       bnkgrp_rw_found.set(grp);
@@ -692,9 +769,13 @@ void dram_t::print(FILE *simFile) const {
   unsigned i;
   fprintf(simFile, "DRAM[%d]: %d bks, busW=%d BL=%d CL=%d, ", id, m_config->nbk,
           m_config->busW, m_config->BL, m_config->CL);
-  fprintf(simFile, "tRRD=%d tCCD=%d, tRCD=%d tRAS=%d tRP=%d tRC=%d\n",
+  fprintf(simFile,
+          "tRRD=%d tCCD=%d, tRCD=%d tRAS=%d tRP=%d tRC=%d tRCDWR=%d WL=%d "
+          "tWR=%d tWTR=tCDLR=%d tRTP=%d tRTW=%d tWTP=%d tFAW=%d\n",
           m_config->tRRD, m_config->tCCD, m_config->tRCD, m_config->tRAS,
-          m_config->tRP, m_config->tRC);
+          m_config->tRP, m_config->tRC, m_config->tRCDWR, m_config->WL,
+          m_config->tWR, m_config->tCDLR, m_config->tRTP, m_config->tRTW,
+          m_config->tWTP, m_config->tFAW);
   fprintf(
       simFile,
       "n_cmd=%llu n_nop=%llu n_act=%llu n_pre=%llu n_ref_event=%llu n_req=%llu "
@@ -703,6 +784,30 @@ void dram_t::print(FILE *simFile) const {
       (float)bwutil / n_cmd);
   fprintf(simFile, "n_activity=%llu dram_eff=%.4g\n", n_activity,
           (float)bwutil / n_activity);
+  fprintf(simFile,
+          "Average number of banks with pending requests when there is at "
+          "least 1 request =%.4g\n",
+          ((float)avg_utilized_banks) / cyclesWithRequestsInMem);
+  fprintf(simFile, "Memory controller active cycles =%.4g\n",
+          ((float)cyclesWithRequestsInMem) / n_cmd);
+  fprintf(simFile,
+          "Avg number of banks in a window size of %d requests = %.4g\n",
+          m_config->gpgpu_frfcfs_dram_sched_queue_size,
+          (((float)avg_banks_in_window) / pushCycles));
+  fprintf(simFile,
+          "Avg number of rows in a window size of %d requests = %.4g\n",
+          m_config->gpgpu_frfcfs_dram_sched_queue_size,
+          (((float)avg_rows_in_window) / pushCycles));
+  fprintf(simFile,
+          "percentage of windows with write requests in a window size of %d = "
+          "%.4g\n",
+          m_config->gpgpu_frfcfs_dram_sched_queue_size,
+          ((float)percent_window_with_write) / pushCycles);
+  fprintf(simFile,
+          "Avg number of writes in windows of size %d that has write requests= "
+          "%.4g\n",
+          m_config->gpgpu_frfcfs_dram_sched_queue_size,
+          ((float)how_much_write_in_windows) / percent_window_with_write);
   for (i = 0; i < m_config->nbk; i++) {
     fprintf(simFile, "bk%d: %da %di ", i, bk[i]->n_access, bk[i]->n_idle);
   }
@@ -850,6 +955,8 @@ void dram_t::visualizer_print(gzFile visualizer_file) {
              m_stats->mem_access_type_stats[CONST_ACC_R][id][j]);
     gzprintf(visualizer_file, "dramtexture_acc_r: %u %u %u\n", id, j,
              m_stats->mem_access_type_stats[TEXTURE_ACC_R][id][j]);
+    gzprintf(visualizer_file, "dramz_acc_w: %u %u %u\n", id, j,
+             m_stats->mem_access_type_stats[Z_ACCESS_TYPE][id][j]);
   }
 }
 
@@ -877,4 +984,17 @@ unsigned dram_t::get_bankgrp_number(unsigned i) {
   } else {
     assert(1);
   }
+}
+
+bool dram_t::is_tFAW(unsigned int cmdTime) {
+  if ((actCmdTimes.size() < 4) or
+      ((cmdTime - actCmdTimes.front()) >= m_config->tFAW))
+    return true;
+  return false;
+}
+
+void dram_t::act_issue(unsigned int cmdTime) {
+  assert(actCmdTimes.size() <= 4);
+  if (actCmdTimes.size() == 4) actCmdTimes.pop_front();
+  actCmdTimes.push_back(cmdTime);
 }

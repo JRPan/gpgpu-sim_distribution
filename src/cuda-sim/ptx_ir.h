@@ -304,6 +304,7 @@ class symbol_table {
   symbol_table();
   symbol_table(const char *scope_name, unsigned entry_point,
                symbol_table *parent, gpgpu_context *ctx);
+  ~symbol_table(){if(m_parent) delete m_parent;}
   void set_name(const char *name);
   const ptx_version &get_ptx_version() const;
   unsigned get_sm_target() const;
@@ -343,6 +344,8 @@ class symbol_table {
 
   iterator const_iterator_begin() { return m_consts.begin(); }
   iterator const_iterator_end() { return m_consts.end(); }
+
+  symbol_table * getParent(){return m_parent;}
 
   void dump();
 
@@ -1037,6 +1040,12 @@ class ptx_instruction : public warp_inst_t {
   bool has_return() const { return m_return_var.is_valid(); }
 
   memory_space_t get_space() const { return m_space_spec; }
+  void set_z(){m_space_spec.set_z(); }
+  bool is_z() const{return m_space_spec.is_z(); }
+  void set_blend(){m_space_spec.set_blend(); }
+  bool is_blend() const{return m_space_spec.is_blend(); }
+  void set_vert(){m_space_spec.set_vert(); }
+  bool is_vert() const {return m_space_spec.is_vert(); }
   unsigned get_vector() const { return m_vector_spec; }
   unsigned get_atomic() const { return m_atomic_spec; }
 
@@ -1096,7 +1105,8 @@ class ptx_instruction : public warp_inst_t {
 
   bool has_memory_read() const {
     if (m_opcode == LD_OP || m_opcode == LDU_OP || m_opcode == TEX_OP ||
-        m_opcode == MMA_LD_OP)
+        m_opcode == MMA_LD_OP  || 
+        m_opcode == LDV_OP || m_opcode == ZTEST_OP || m_opcode == BLEND_OP)
       return true;
     // Check PTXPlus operand type below
     // Source operands are memory operands
@@ -1108,7 +1118,10 @@ class ptx_instruction : public warp_inst_t {
     return false;
   }
   bool has_memory_write() const {
-    if (m_opcode == ST_OP || m_opcode == MMA_ST_OP) return true;
+    if (m_opcode == ST_OP || m_opcode == MMA_ST_OP || 
+        m_opcode == STP_OP || m_opcode == STV_OP || 
+        m_opcode == ZWRITE_OP || m_opcode == ATOM_OP) 
+          return true;
     // Check PTXPlus operand type below
     // Destination operand is a memory operand
     ptx_instruction::const_iterator op = op_iter_begin();

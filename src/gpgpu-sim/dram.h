@@ -42,6 +42,10 @@
 #include <vector>
 #include "delayqueue.h"
 
+#include <queue>
+#include <list>
+#include <fstream>
+
 #define READ 'R'  // define read and write states
 #define WRITE 'W'
 #define BANK_IDLE 'I'
@@ -111,6 +115,7 @@ class dram_t {
   dram_t(unsigned int parition_id, const memory_config *config,
          class memory_stats_t *stats, class memory_partition_unit *mp,
          class gpgpu_sim *gpu);
+  ~dram_t();
 
   bool full(bool is_write) const;
   void print(FILE *simFile) const;
@@ -226,6 +231,7 @@ class dram_t {
   unsigned int bwutil;
   unsigned int max_mrqs;
   unsigned int ave_mrqs;
+  unsigned int cyclesWithRequestsInMem;
 
   class frfcfs_scheduler *m_frfcfs_scheduler;
 
@@ -238,10 +244,27 @@ class dram_t {
   unsigned int ave_mrqs_partial;
   unsigned int bwutil_partial;
 
+  unsigned int avg_utilized_banks;
+  std::vector<unsigned int> touchedBanks;
+  std::vector<unsigned int> touchedRows;
+  std::vector<bool> isItWriteRequest;
+  unsigned int pushCycles;
+  unsigned int avg_banks_in_window;
+  unsigned int avg_rows_in_window;
+  unsigned int percent_window_with_write;
+  unsigned int how_much_write_in_windows;
+
   class memory_stats_t *m_stats;
   class Stats *mrqq_Dist;  // memory request queue inside DRAM
 
   friend class frfcfs_scheduler;
+
+  // used to implement tFAW parameter
+  std::list<unsigned int> actCmdTimes;
+  bool is_tFAW(unsigned int);
+  void act_issue(unsigned int);
+
+  std::ofstream dram_trace;
 };
 
 #endif /*DRAM_H*/

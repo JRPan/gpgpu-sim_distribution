@@ -112,7 +112,16 @@ bool mem_fetch::isatomic() const {
   return m_inst.isatomic();
 }
 
+void mem_fetch::set_atomic(bool atomic) {
+  if (m_inst.empty()) return;
+  m_inst.set_atomic(atomic);
+}
+
 void mem_fetch::do_atomic() { m_inst.do_atomic(m_access.get_warp_mask()); }
+
+active_mask_t mem_fetch::do_zrop() {
+  return m_inst.do_zrop(m_access.get_warp_mask());
+}
 
 bool mem_fetch::istexture() const {
   if (m_inst.empty()) return false;

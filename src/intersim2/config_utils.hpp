@@ -34,6 +34,7 @@
 #include<string>
 #include<map>
 #include<vector>
+using namespace std;
 
 extern "C" int yyparse();
 

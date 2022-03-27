@@ -27,6 +27,8 @@
 #
 # Makefile
 #
+include /home/pan251/accel-sim-framework/gpu-simulator/gpgpu-sim/src/graphics/Makefile.include
+CPPFLAGS += $(CXXFLAGS)
 CXX = g++
 CC = gcc
 CREATE_LIBRARY ?= 0

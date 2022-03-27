@@ -119,6 +119,8 @@ cudaLaunchDeviceV2_init_perWarp, cudaLaunchDevicV2_perKernel>"
                          "7200,8000,100,12000,1600");
 }
 
+void sign_extend( ptx_reg_t &data, unsigned src_size, const operand_info &dst );
+
 void gpgpu_t::gpgpu_ptx_sim_bindNameToTexture(
     const char *name, const struct textureReference *texref, int dim,
     int readmode, int ext) {
@@ -198,7 +200,7 @@ void gpgpu_t::gpgpu_ptx_sim_bindTextureToArray(
   unsigned int texel_size_bits =
       array->desc.w + array->desc.x + array->desc.y + array->desc.z;
   unsigned int texel_size = texel_size_bits / 8;
-  unsigned int Tx, Ty;
+  unsigned int Tx = 0, Ty;
   int r;
 
   printf("GPGPU-Sim PTX:   texel size = %d\n", texel_size);
@@ -243,8 +245,8 @@ void gpgpu_t::gpgpu_ptx_sim_bindTextureToArray(
   printf("GPGPU-Sim PTX:   Texel size = %d bytes; texel_size_numbits = %d\n",
          texel_size, intLOGB2(texel_size));
   printf(
-      "GPGPU-Sim PTX:   Binding texture to array starting at devPtr32 = 0x%x\n",
-      array->devPtr32);
+      "GPGPU-Sim PTX:   Binding texture to array starting at devPtr = 0x%x\n",
+      array->devPtr);
   printf("GPGPU-Sim PTX:   Texel size = %d bytes\n", texel_size);
   struct textureInfo *texInfo =
       (struct textureInfo *)malloc(sizeof(struct textureInfo));
@@ -754,8 +756,26 @@ void ptx_instruction::set_opcode_and_latency() {
     case LDU_OP:
       op = LOAD_OP;
       break;
+    case LDV_OP:
+      op = LOAD_OP;
+      break;
+    case ZTEST_OP:
+      op = LOAD_OP;
+      break;
+    case BLEND_OP:
+      op = LOAD_OP;
+      break;
     case ST_OP:
       op = STORE_OP;
+      break;
+    case STP_OP: 
+      op = STORE_OP; 
+      break;
+    case STV_OP: 
+      op = STORE_OP;
+     break;
+    case ZWRITE_OP: 
+      op = STORE_OP; 
       break;
     case MMA_ST_OP:
       op = TENSOR_CORE_STORE_OP;
@@ -925,6 +945,26 @@ void ptx_instruction::set_opcode_and_latency() {
           break;
       }
       break;
+    case REM_OP:
+      // Integer only int div latency
+      op = SFU_OP;
+      switch(get_type()){
+      case F64_TYPE:
+      case FF64_TYPE:
+      case F32_TYPE:
+          assert(0 && "REM_OP must be int type");
+          break;
+      case B32_TYPE:
+      case U32_TYPE:
+      case S32_TYPE:
+          latency = int_latency[4];
+          initiation_interval = int_init[4];
+          break;
+      default:
+          assert(0 && "Unknown REM_OP type");
+          break;
+      }
+      break;
     case SQRT_OP:
     case SIN_OP:
     case COS_OP:
@@ -1070,10 +1110,13 @@ void ptx_instruction::pre_decode() {
       break;
     default:
       // if( m_opcode == LD_OP || m_opcode == LDU_OP )
-      if (m_opcode == MMA_LD_OP || m_opcode == LD_OP || m_opcode == LDU_OP)
+      if (m_opcode == MMA_LD_OP || m_opcode == LD_OP || m_opcode == LDU_OP ||
+          m_opcode == LDV_OP || m_opcode == ZTEST_OP || m_opcode == BLEND_OP)
         cache_op = CACHE_ALL;
       // else if( m_opcode == ST_OP )
-      else if (m_opcode == MMA_ST_OP || m_opcode == ST_OP)
+      else if (m_opcode == MMA_ST_OP || m_opcode == ST_OP ||
+               m_opcode == STP_OP || m_opcode == STV_OP ||
+               m_opcode == ZWRITE_OP)
         cache_op = CACHE_WRITE_BACK;
       else if (m_opcode == ATOM_OP)
         cache_op = CACHE_GLOBAL;
@@ -1364,11 +1407,31 @@ void function_info::finalize(memory_space *param_mem) {
     size = param_value.size;  // size of param in bytes
     // assert(param_value.offset == param_address);
     if (size != p.get_size() / 8) {
-      printf(
-          "GPGPU-Sim PTX: WARNING actual kernel paramter size = %zu bytes vs. "
-          "formal size = %zu (using smaller of two)\n",
-          size, p.get_size() / 8);
-      size = (size < (p.get_size() / 8)) ? size : (p.get_size() / 8);
+      if (size == 4 && p.get_size() / 8 == 8) {
+        assert( 0 &&
+            "Parameter size is 8B, but 4B passed, possibly a pointer:\n"
+            "      Assuming a 32-bit CPU arch, promoting arg to 64-bit pointer "
+            "for GPU\n"
+            "      This may fail if using structs/unions containing pointer "
+            "types\n");
+        size_t orig_size = size;
+        size = p.get_size() / 8;
+        param_value.size = size;
+        // TODO: GPGPU-Sim doesn't currently clean these up anywhere, but
+        // this should be freed at kernel completion or end of simulation
+        char *for_pdata = new char[size];
+        memset(for_pdata, 0, size * sizeof(char));
+        const char *pdata = reinterpret_cast<const char *>(param_value.pdata);
+        memcpy(for_pdata, pdata, orig_size);
+        param_value.pdata = for_pdata;
+        delete[] pdata;
+      } else {
+        printf(
+            "GPGPU-Sim PTX: WARNING actual kernel parameter size = %zu bytes "
+            "vs. formal size = %zu (trying smaller of two)\n",
+            size, p.get_size() / 8);
+        size = (size < (p.get_size() / 8)) ? size : (p.get_size() / 8);
+      }
     }
     // copy the parameter over word-by-word so that parameter that crosses a
     // memory page can be copied over
@@ -1667,23 +1730,174 @@ void cuda_sim::init_inst_classification_stat() {
       StatCreate(kernelname, 1, 100);
 }
 
-static unsigned get_tex_datasize(const ptx_instruction *pI,
-                                 ptx_thread_info *thread) {
-  const operand_info &src1 = pI->src1();  // the name of the texture
+static unsigned get_tex_datasize( const ptx_instruction *pI, ptx_thread_info *thread ) {
+  const operand_info &src1 = pI->src1(); //the name of the texture
   std::string texname = src1.name();
 
-  /*
-    For programs with many streams, textures can be bound and unbound
-    asynchronously.  This means we need to use the kernel's "snapshot" of
-    the state of the texture mappings when it was launched (so that we
-    don't try to access the incorrect texture mapping if it's been updated,
-    or that we don't access a mapping that has been unbound).
-   */
-  kernel_info_t &k = thread->get_kernel();
-  const struct textureInfo *texInfo = k.get_texinfo(texname);
+  if(texname.find("TGSI_SAMP") == std::string::npos){
+    gpgpu_t *gpu = thread->get_gpu();
+    const struct textureReference* texref = gpu->get_texref(texname);
+    const struct textureInfo* texInfo = gpu->get_texinfo(texname);
 
-  unsigned data_size = texInfo->texel_size;
-  return data_size;
+    unsigned data_size = texInfo->texel_size;
+    return data_size;
+  } else {
+     std::string unitNum = texname.substr(texname.find('_') + 1);
+     unitNum = unitNum.substr(unitNum.find('_') + 1);
+     int samplingUnit = std::stoi(unitNum, nullptr);
+     return getMesaTexelSize(samplingUnit);
+  }
+}
+int ptx_thread_info::readRegister(const warp_inst_t &inst, unsigned lane_id, char *data, unsigned reg_id)
+{
+   const ptx_instruction *pI = m_func_info->get_instruction(inst.pc);
+   int offset = 0;
+   int bytes = -1;
+
+   //special handling for instructions using builtin storage
+   //e.g., store pixel (stp), z write (zwrite)
+   if(pI->get_num_operands() == 0){
+     assert(m_builtin_dst.valid);
+     m_builtin_dst.valid = false;
+     ptx_reg_t ptx_reg = m_builtin_dst.reg;
+     bytes = m_builtin_dst.size;
+     memcpy(data+offset, &ptx_reg, bytes);
+     offset += bytes;
+     return 1;
+   }
+
+   const operand_info &dst = pI->dst();
+   const operand_info &src = pI->operand_lookup(reg_id);
+   unsigned type = pI->get_type();
+   unsigned vector_spec = pI->get_vector();
+
+   // SIZE IS IN BITS
+   size_t size;
+   int basic_type;
+   type_info_key::type_decode(pI->get_type(), size, basic_type);
+
+   // NOTE: converting the register values like below (casting to ull) may not 
+   // work. It might keep some upper bits that are stale. see ptx_sim.h line 56
+
+   bytes = size/8;
+
+   if (vector_spec) {
+      if (vector_spec == V2_TYPE) {
+         ptx_reg_t ptx_regs[2];
+         get_vector_operand_values(src, ptx_regs, 2);
+         memcpy(data+offset, &ptx_regs[0], bytes);
+         offset += bytes;
+         memcpy(data+offset, &ptx_regs[1], bytes);
+         return 2;
+      }
+      else if (vector_spec == V3_TYPE) {
+         ptx_reg_t ptx_regs[3];
+         get_vector_operand_values(src, ptx_regs, 3);
+         memcpy(data+offset, &ptx_regs[0], bytes);
+         offset += bytes;
+         memcpy(data+offset, &ptx_regs[1], bytes);
+         offset += bytes;
+         memcpy(data+offset, &ptx_regs[2], bytes);
+         offset += bytes;
+         return 3;
+      }
+      else {
+         assert(vector_spec == V4_TYPE);
+         ptx_reg_t ptx_regs[4];
+         get_vector_operand_values(src, ptx_regs, 4);
+         memcpy(data+offset, &ptx_regs[0], bytes);
+         offset += bytes;
+         memcpy(data+offset, &ptx_regs[1], bytes);
+         offset += bytes;
+         memcpy(data+offset, &ptx_regs[2], bytes);
+         offset += bytes;
+         memcpy(data+offset, &ptx_regs[3], bytes);
+         offset += bytes;
+         return 4;
+      }
+   } else {
+      ptx_reg_t ptx_reg = this->get_operand_value(src, dst, type, this, 1);
+      memcpy(data+offset, &ptx_reg, bytes);
+      offset += bytes;
+      return 1;
+   }
+}
+
+void ptx_thread_info::writeRegister(const warp_inst_t &inst, unsigned lane_id, char *data)
+{
+   const ptx_instruction *pI = m_func_info->get_instruction(inst.pc);
+   const operand_info &dst = pI->dst();
+   unsigned type = pI->get_type();
+   ptx_reg_t reg;
+   memory_space_t space = pI->get_space();
+   unsigned vector_spec = pI->get_vector();
+   size_t size;
+   int t;
+   type_info_key::type_decode(type,size,t);
+   int offset = 0;
+   int bytes = size/8;
+
+   //special handling for ztest
+   if(pI->is_z()){
+      unsigned uniqueThreadId = get_uid_in_kernel();
+      void* stream = get_kernel_info()->get_stream();
+      addr_t addr = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_DEPTH_ADDR, 1, -1, -1, stream).u64;
+      uint64_t posZ =  g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_UINT_POS, 2, -1, -1, stream).u64;
+      ptx_reg_t oldDepth;
+      memcpy(&oldDepth, data, bytes);
+      bool passedDepth = g_renderData.depthTest(oldDepth.u64, posZ);
+      if(passedDepth){
+         reg.u32 = 1;
+      } else {
+         reg.u32 = 0;
+         g_renderData.setFragLiveStatus(uniqueThreadId, stream, false);
+      }
+      set_operand_value(dst,reg, type, this, pI);
+      return;
+   } else if(pI->is_blend()){
+      ptx_reg_t src1_data, oldPixel;
+      const operand_info &src1 = pI->src1();
+      memcpy(&oldPixel, data, bytes);
+      assert(type == U32_TYPE); //what we use for blending for now
+      assert(bytes == 4);
+
+      src1_data = get_operand_value(src1, dst, type, this, 1);
+      reg.u32 = blendU32(src1_data.u32, oldPixel.u32);
+      set_operand_value(dst, reg, type, this, pI);
+      return;
+   }
+
+   // NOTE: converting the register values like below (casting to ull) may not
+   // work. It might keep some upper bits that are stale. see ptx_sim.h line 56
+
+   //reg.u64 = data[0];
+   memcpy(&reg, data, bytes);
+
+   if (!vector_spec) {
+      if( type == S16_TYPE || type == S32_TYPE ) {
+         sign_extend(reg,size,dst);
+      }
+      set_operand_value(dst,reg, type, this, pI);
+   } else {
+      ptx_reg_t data1, data2, data3, data4;
+      memcpy(&data1, data+offset, bytes);
+      offset += bytes;
+      memcpy(&data2, data+offset, bytes);
+      offset += bytes;
+      if (vector_spec != V2_TYPE) { //either V3 or V4
+         memcpy(&data3, data+offset, bytes);
+         offset += bytes;
+         if (vector_spec != V3_TYPE) { //v4
+            memcpy(&data4, data+offset, bytes);
+            offset += bytes;
+            set_vector_operand_values(dst,data1,data2,data3,data4);
+         } else { //v3
+            set_vector_operand_values(dst,data1,data2,data3,data3);
+         }
+      } else { //v2
+         set_vector_operand_values(dst,data1,data2,data2,data2);
+      }
+   }
 }
 
 int tensorcore_op(int inst_opcode) {
@@ -1702,6 +1916,20 @@ void ptx_thread_info::ptx_exec_inst(warp_inst_t &inst, unsigned lane_id) {
   const ptx_instruction *pI = m_func_info->get_instruction(pc);
 
   set_npc(pc + pI->inst_size());
+  unsigned vector_spec = pI->get_vector();
+  // TODO: fix how the vector len is calculated for all cases
+  if (vector_spec && (pI->get_opcode() != TEX_OP)) {
+    if (vector_spec == V2_TYPE) {
+      inst.vectorLength = 2;
+    } else if (vector_spec == V3_TYPE) {
+      inst.vectorLength = 3;
+    } else {
+      assert(vector_spec == V4_TYPE);
+      inst.vectorLength = 4;
+    }
+  } else {
+    inst.vectorLength = 1;
+  }
 
   try {
     clearRPC();
@@ -1784,6 +2012,8 @@ void ptx_thread_info::ptx_exec_inst(warp_inst_t &inst, unsigned lane_id) {
       }
       delete pJ;
       pI = pI_saved;
+
+      // m_gpu->gem5CudaGPU->getCudaCore(m_hw_sid)->record_inst(op_classification);
 
       // Run exit instruction if exit option included
       if (pI->is_exit()) exit_impl(pI, this);

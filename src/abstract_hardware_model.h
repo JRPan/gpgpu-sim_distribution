@@ -72,11 +72,15 @@ enum AdaptiveCache { FIXED = 0, ADAPTIVE_CACHE = 1 };
 #include <stdio.h>
 #include <string.h>
 #include <set>
+#include <stdint.h>
+#include <unordered_map>
+#include "./graphics/gpgpusim_to_graphics_calls.h"
 
 typedef unsigned long long new_addr_type;
 typedef unsigned long long cudaTextureObject_t;
 typedef unsigned long long address_type;
 typedef unsigned long long addr_t;
+new_addr_type line_size_based_tag_func(new_addr_type address, new_addr_type line_size);
 
 // the following are operations the timing model can see
 #define SPECIALIZED_UNIT_NUM 8
@@ -267,6 +271,9 @@ class kernel_info_t {
   class memory_space *get_param_memory() {
     return m_param_mem;
   }
+  struct CUstream_st *get_stream() const {
+    return m_stream;
+  }
 
   // The following functions access texture bindings present at the kernel's
   // launch
@@ -306,8 +313,64 @@ class kernel_info_t {
 
   std::list<class ptx_thread_info *> m_active_threads;
   class memory_space *m_param_mem;
+  struct CUstream_st *m_stream;
+  
+  address_type m_inst_text_base_vaddr;
+  bool m_isGraphicsKernel;
+  bool m_drawCallDone;
+  std::unordered_map<unsigned, unsigned> graphicsCtaToCoreMap;
 
  public:
+  //  graphics
+  address_type get_inst_base_vaddr() { return m_inst_text_base_vaddr; };
+  void set_inst_base_vaddr(address_type addr) {
+    m_inst_text_base_vaddr = addr;
+  };
+  bool isGraphicsKernel() { return m_isGraphicsKernel; }
+  void setGraphicsKernel() { m_isGraphicsKernel = true; }
+  void setDrawCallDone() { m_drawCallDone = true; }
+  bool isDrawCallDone() {
+    if (m_isGraphicsKernel) return m_drawCallDone;
+    return true;
+  }
+  void add_blocks(unsigned newBlocks, unsigned start_tid) {
+    // if we already done existing blocks rewind grid dims
+    if (no_more_ctas_to_run()) {
+      // assert(m_next_cta.y > 0);
+      // m_next_cta.y-= 1;
+      assert(m_next_cta.z > 0);
+      m_next_cta.x = m_grid_dim.x;
+      m_next_cta.y = 0;
+      m_next_cta.z = 0;
+    }
+    m_grid_dim.x += newBlocks;
+    // assignCtaToCore(newBlocks, cluster_id, start_tid);
+  }
+
+  void assignCtaToCore(unsigned numBlocks, unsigned sid, unsigned start_tid) {
+    unsigned cta_size = threads_per_cta();
+    for (unsigned i = 0; i < numBlocks; i++) {
+      unsigned tid = start_tid + i * cta_size;
+      graphicsCtaToCoreMap[tid] = sid;
+    }
+  }
+
+  bool canGetNextGraphicsBlock(unsigned sid) {
+    if (m_isGraphicsKernel) {
+      unsigned ntid = m_next_cta.x * threads_per_cta();
+      assert(graphicsCtaToCoreMap.find(ntid) != graphicsCtaToCoreMap.end());
+      if (graphicsCtaToCoreMap[ntid] == sid) return true;
+      return false;
+    }
+    return true;
+  }
+
+  unsigned getTidCore(unsigned tid) {
+    assert(m_isGraphicsKernel);
+    unsigned ntid = (tid / threads_per_cta()) * threads_per_cta();
+    assert(graphicsCtaToCoreMap.find(ntid) != graphicsCtaToCoreMap.end());
+    return graphicsCtaToCoreMap[ntid];
+  }
   // Jin: parent and child kernel management for CDP
   void set_parent(kernel_info_t *parent, dim3 parent_ctaid, dim3 parent_tid);
   void set_child(kernel_info_t *child);
@@ -384,6 +447,8 @@ class core_config {
   // accesses)
   unsigned gpgpu_cache_texl1_linesize;
   unsigned gpgpu_cache_constl1_linesize;
+  unsigned gpgpu_cache_datal1_linesize;  
+  bool gpgpu_debug_texture_accesses;
 
   unsigned gpgpu_max_insn_issue_per_warp;
   bool gmem_skip_L1D;  // on = global memory access always skip the L1 cache
@@ -482,6 +547,7 @@ struct cudaArray {
   int height;
   int size;  // in bytes
   unsigned dimensions;
+  uint8_t * texData;
 };
 
 #endif
@@ -688,10 +754,16 @@ class memory_space_t {
   memory_space_t() {
     m_type = undefined_space;
     m_bank = 0;
+    m_is_z = false;
+    m_is_blend = false;
+    m_is_vert_write = false;
   }
   memory_space_t(const enum _memory_space_t &from) {
     m_type = from;
     m_bank = 0;
+    m_is_z = false;
+    m_is_blend = false;
+    m_is_vert_write = false;
   }
   bool operator==(const memory_space_t &x) const {
     return (m_bank == x.m_bank) && (m_type == x.m_type);
@@ -717,11 +789,20 @@ class memory_space_t {
     return (m_type == local_space) || (m_type == param_space_local);
   }
   bool is_global() const { return (m_type == global_space); }
+  void set_z() { m_is_z = true; }
+  bool is_z() const { return m_is_z; }
+  void set_blend() { m_is_blend = true; }
+  bool is_blend() const { return m_is_blend; }
+  void set_vert() { m_is_vert_write = true; }
+  bool is_vert() const { return m_is_vert_write; }
 
  private:
   enum _memory_space_t m_type;
   unsigned m_bank;  // n in ".const[n]"; note .const == .const[0] (see PTX 2.1
                     // manual, sec. 5.1.3)
+  bool m_is_z;
+  bool m_is_blend;
+  bool m_is_vert_write;
 };
 
 const unsigned MAX_MEMORY_ACCESS_SIZE = 128;
@@ -737,7 +818,9 @@ typedef std::bitset<SECTOR_CHUNCK_SIZE> mem_access_sector_mask_t;
       MA_TUP(TEXTURE_ACC_R), MA_TUP(GLOBAL_ACC_W), MA_TUP(LOCAL_ACC_W), \
       MA_TUP(L1_WRBK_ACC), MA_TUP(L2_WRBK_ACC), MA_TUP(INST_ACC_R),     \
       MA_TUP(L1_WR_ALLOC_R), MA_TUP(L2_WR_ALLOC_R),                     \
-      MA_TUP(NUM_MEM_ACCESS_TYPE) MA_TUP_END(mem_access_type)
+      MA_TUP(NUM_MEM_ACCESS_TYPE), MA_TUP(Z_ACCESS_TYPE),               \
+      MA_TUP(Z_UNIT_WRBK_ACC), MA_TUP(Z_UNIT_C_UPDATE),                 \ 
+      MA_TUP_END(mem_access_type)
 
 #define MA_TUP_BEGIN(X) enum X {
 #define MA_TUP(X) X
@@ -750,6 +833,39 @@ MEM_ACCESS_TYPE_TUP_DEF
 #undef MA_TUP_END
 
 const char *mem_access_type_str(enum mem_access_type access_type);
+
+// Z unit structures
+#define Z_DATA_TYPE uint32_t
+#define C_DATA_TYPE uint32_t
+#define Z_DATA_SIZE \
+  sizeof(Z_DATA_TYPE)  // adjust the read values from register based on the data
+                       // type in z_st() in instructions.cc
+#define C_DATA_SIZE \
+  sizeof(C_DATA_TYPE)  // adjust the read values from register based on the data
+                       // type in z_st() in instructions.cc
+#define Z_DEFALUT_VALUE (65535)
+#define Z_IS_CLOSER_THAN <=
+struct allocatedZbuffer {
+  new_addr_type start;
+  new_addr_type end;
+  bool mapped;
+};
+
+class z_buffer_storage {
+ public:
+  z_buffer_storage();
+  void addBuffer(void *buffer, size_t size);
+  bool isInZBuffers(new_addr_type address);
+  new_addr_type getCompressedAddress(new_addr_type address);
+  Z_DATA_TYPE readZValue(new_addr_type address);
+  void writeZValue(Z_DATA_TYPE value, new_addr_type address,
+                   ptx_thread_info *thd, const class inst_t *instruction);
+  bool mapBufferToZ(void *buffer);
+
+ private:
+  std::vector<allocatedZbuffer> zBuffers;
+  memory_space *m_global_z_mem;
+};
 
 enum cache_operator_type {
   CACHE_UNDEFINED,
@@ -822,6 +938,9 @@ class mem_access_t {
       case GLOBAL_ACC_W:
         fprintf(fp, "GLOBAL_W");
         break;
+      case Z_ACCESS_TYPE:
+        fprintf(fp, "Z_BUFF_W");
+        break;
       case LOCAL_ACC_W:
         fprintf(fp, "LOCAL_W ");
         break;
@@ -841,6 +960,10 @@ class mem_access_t {
   }
 
   gpgpu_context *gpgpu_ctx;
+  void set_new_addr(new_addr_type addr, bool write) {
+    m_addr = addr;
+    m_write = write;
+  }
 
  private:
   void init(gpgpu_context *ctx);
@@ -894,6 +1017,29 @@ struct dram_callback_t {
 
   const class inst_t *instruction;
   class ptx_thread_info *thread;
+};
+
+struct zrop_callback_t {
+  zrop_callback_t() { reset(); }
+  void reset() {
+    function = NULL;
+    instruction = NULL;
+    thread = NULL;
+    depth = Z_DEFALUT_VALUE;
+    color = 0xDEADBEEF;
+  }
+  typedef Z_DATA_TYPE zrop_input_t;
+  typedef bool (*zrop_callback_function_t)(const class inst_t *instruction,
+                                           class ptx_thread_info *thread,
+                                           zrop_input_t depth,
+                                           zrop_input_t color,
+                                           new_addr_type addr);
+  zrop_callback_function_t function;
+  const class inst_t *instruction;
+  class ptx_thread_info *thread;
+  zrop_input_t depth;
+  zrop_input_t color;
+  new_addr_type address;
 };
 
 class inst_t {
@@ -988,6 +1134,7 @@ class inst_t {
   unsigned initiation_interval;
 
   unsigned data_size;  // what is the size of the word being operated on?
+  int data_type;
   memory_space_t space;
   cache_operator_type cache_op;
 
@@ -999,6 +1146,7 @@ class inst_t {
 enum divergence_support_t { POST_DOMINATOR = 1, NUM_SIMD_MODEL };
 
 const unsigned MAX_ACCESSES_PER_INSN_PER_THREAD = 8;
+const unsigned MAX_DATA_BYTES_PER_INSN_PER_THREAD = 16;
 
 class warp_inst_t : public inst_t {
  public:
@@ -1027,6 +1175,8 @@ class warp_inst_t : public inst_t {
   void broadcast_barrier_reduction(const active_mask_t &access_mask);
   void do_atomic(bool forceDo = false);
   void do_atomic(const active_mask_t &access_mask, bool forceDo = false);
+  // return the mask for pixel that needs color update
+  active_mask_t do_zrop(const active_mask_t &access_mask, bool forceDo = false);
   void clear() { m_empty = true; }
 
   void issue(const active_mask_t &mask, unsigned warp_id,
@@ -1041,7 +1191,9 @@ class warp_inst_t : public inst_t {
       m_per_scalar_thread.resize(m_config->warp_size);
       m_per_scalar_thread_valid = true;
     }
+    assert(n < m_config->warp_size);
     m_per_scalar_thread[n].memreqaddr[0] = addr;
+    m_per_scalar_thread[n].memreqsCount = 1;
   }
   void set_addr(unsigned n, new_addr_type *addr, unsigned num_addrs) {
     if (!m_per_scalar_thread_valid) {
@@ -1049,8 +1201,10 @@ class warp_inst_t : public inst_t {
       m_per_scalar_thread_valid = true;
     }
     assert(num_addrs <= MAX_ACCESSES_PER_INSN_PER_THREAD);
+    assert(n < m_config->warp_size);
     for (unsigned i = 0; i < num_addrs; i++)
       m_per_scalar_thread[n].memreqaddr[i] = addr[i];
+    m_per_scalar_thread[n].memreqsCount = num_addrs;
   }
   void print_m_accessq() {
     if (accessq_empty())
@@ -1065,6 +1219,22 @@ class warp_inst_t : public inst_t {
       }
     }
   }
+  unsigned get_mem_reqs_count(unsigned lane_id) const {
+    return m_per_scalar_thread[lane_id].memreqsCount;
+  }
+
+  void set_data(unsigned n, const uint8_t *_data) {
+    assert(op == STORE_OP || memory_op == memory_store);
+    assert(space == global_space || space == const_space ||
+           space == local_space);
+    assert(m_per_scalar_thread_valid);
+    assert(!m_per_scalar_thread[n].data_valid);
+    m_per_scalar_thread[n].data_valid = true;
+    assert(_data);
+    memcpy(&m_per_scalar_thread[n].data, _data,
+           MAX_DATA_BYTES_PER_INSN_PER_THREAD);
+  }
+
   struct transaction_info {
     std::bitset<4> chunks;  // bitmask: 32-byte chunks accessed
     mem_access_byte_mask_t bytes;
@@ -1097,9 +1267,31 @@ class warp_inst_t : public inst_t {
       m_per_scalar_thread_valid = true;
       if (atomic) m_isatomic = true;
     }
+    assert(lane_id<m_config->warp_size);
     m_per_scalar_thread[lane_id].callback.function = function;
     m_per_scalar_thread[lane_id].callback.instruction = inst;
     m_per_scalar_thread[lane_id].callback.thread = thread;
+  }
+  void add_z_callback(unsigned lane_id,
+                      zrop_callback_t::zrop_callback_function_t function,
+                      class ptx_thread_info *thread, const inst_t *inst,
+                      zrop_callback_t::zrop_input_t depth,
+                      zrop_callback_t::zrop_input_t color,
+                      new_addr_type address) {
+    if (!m_per_scalar_thread_valid) {
+      m_per_scalar_thread.resize(m_config->warp_size);
+      m_per_scalar_thread_valid = true;
+      m_isatomic = true;  // ZZZZ:HACK
+    }
+    assert(lane_id < m_config->warp_size);
+    m_per_scalar_thread[lane_id].z_callback.thread = thread;
+    m_per_scalar_thread[lane_id].z_callback.function = function;
+    m_per_scalar_thread[lane_id].z_callback.instruction = inst;
+    m_per_scalar_thread[lane_id].z_callback.depth = depth;
+    m_per_scalar_thread[lane_id].z_callback.color = color;
+    // added for compression storing the original address for the functional
+    // simulation
+    m_per_scalar_thread[lane_id].z_callback.address = address;
   }
   void set_active(const active_mask_t &active);
 
@@ -1132,15 +1324,29 @@ class warp_inst_t : public inst_t {
     return m_dynamic_warp_id;
   }
   bool has_callback(unsigned n) const {
+    assert(n<m_config->warp_size);
     return m_warp_active_mask[n] && m_per_scalar_thread_valid &&
            (m_per_scalar_thread[n].callback.function != NULL);
   }
   new_addr_type get_addr(unsigned n) const {
+    assert(n<m_config->warp_size);
     assert(m_per_scalar_thread_valid);
     return m_per_scalar_thread[n].memreqaddr[0];
   }
+  new_addr_type get_addr(unsigned n, unsigned req_num) const {
+    assert(n < m_config->warp_size);
+    assert(m_per_scalar_thread_valid);
+    assert(req_num < m_per_scalar_thread[n].memreqsCount);
+    return m_per_scalar_thread[n].memreqaddr[req_num];
+  }
+  const uint8_t *get_data(unsigned n) const {
+    assert(m_per_scalar_thread_valid);
+    assert(m_per_scalar_thread[n].data_valid);
+    return &(m_per_scalar_thread[n].data[0]);
+  }
 
   bool isatomic() const { return m_isatomic; }
+  void set_atomic(bool atomic){ m_isatomic = atomic;}
 
   unsigned warp_size() const { return m_config->warp_size; }
 
@@ -1155,6 +1361,9 @@ class warp_inst_t : public inst_t {
   }
 
   bool has_dispatch_delay() { return cycles > 0; }
+  const int get_cycles() { return cycles; }
+  int vectorLength;
+  int get_atomic() const { return m_atomic_spec; }
 
   void print(FILE *fout) const;
   unsigned get_uid() const { return m_uid; }
@@ -1169,6 +1378,7 @@ class warp_inst_t : public inst_t {
   unsigned cycles;  // used for implementing initiation interval delay
   bool m_isatomic;
   bool should_do_atomic;
+  int m_atomic_spec;
   bool m_is_printf;
   unsigned m_warp_id;
   unsigned m_dynamic_warp_id;
@@ -1181,16 +1391,21 @@ class warp_inst_t : public inst_t {
 
   struct per_thread_info {
     per_thread_info() {
+      memreqsCount =0;
       for (unsigned i = 0; i < MAX_ACCESSES_PER_INSN_PER_THREAD; i++)
         memreqaddr[i] = 0;
     }
     dram_callback_t callback;
+    zrop_callback_t z_callback; 
+    unsigned memreqsCount;
     new_addr_type
         memreqaddr[MAX_ACCESSES_PER_INSN_PER_THREAD];  // effective address,
                                                        // upto 8 different
                                                        // requests (to support
                                                        // 32B access in 8 chunks
                                                        // of 4B each)
+    bool data_valid;
+    uint8_t data[MAX_DATA_BYTES_PER_INSN_PER_THREAD];
   };
   bool m_per_scalar_thread_valid;
   std::vector<per_thread_info> m_per_scalar_thread;
@@ -1268,6 +1483,9 @@ class core_t {
     return m_thread;
   }
   unsigned get_warp_size() const { return m_warp_size; }
+  void writeRegister(const warp_inst_t &inst, unsigned warpSize,
+                     unsigned lane_id, char *data);
+  ptx_thread_info *get_thread(unsigned hwtid) { return m_thread[hwtid]; }
   void and_reduction(unsigned ctaid, unsigned barid, bool value) {
     reduction_storage[ctaid][barid] &= value;
   }

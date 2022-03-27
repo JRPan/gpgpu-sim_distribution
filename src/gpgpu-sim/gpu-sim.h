@@ -40,6 +40,8 @@
 #include "gpu-cache.h"
 #include "shader.h"
 
+// #include "z-unit.h"
+
 // constants for statistics printouts
 #define GPU_RSTAT_SHD_INFO 0x1
 #define GPU_RSTAT_BW_STAT 0x2
@@ -175,6 +177,17 @@ class memory_config {
       option_parser_register(dram_opp, "WR", OPT_UINT32, &tWR,
                              "last data-in to row precharge", "");
 
+      option_parser_register(dram_opp, "RCDWR", OPT_UINT32, &tRCDWR,
+                             "RAS to CAS delay for Write", "");
+      option_parser_register(dram_opp, "RTW", OPT_UINT32, &tRTW,
+                             "read to write delay", "");
+      option_parser_register(dram_opp, "RTP", OPT_UINT32, &tRTP,
+                             "read to precharge interval", "");
+      option_parser_register(dram_opp, "WTP", OPT_UINT32, &tWTP,
+                             "write to precharge interval", "");
+      option_parser_register(dram_opp, "FAW", OPT_UINT32, &tFAW,
+                             "Four-bank activation window", "");
+
       option_parser_register(dram_opp, "CL", OPT_UINT32, &CL, "CAS latency",
                              "");
       option_parser_register(dram_opp, "WL", OPT_UINT32, &WL, "Write latency",
@@ -276,6 +289,7 @@ class memory_config {
   unsigned tCDLR;  // Last data-in to Read command (switching from write to
                    // read)
   unsigned tWR;    // Last data-in to Row precharge
+  unsigned tFAW;   //Four banks activate window
 
   unsigned CL;    // CAS latency
   unsigned WL;    // WRITE latency
@@ -283,6 +297,7 @@ class memory_config {
   unsigned tRTW;  // time to switch from read to write
   unsigned tWTR;  // time to switch from write to read
   unsigned tWTP;  // time to switch from write to precharge in the same bank
+  unsigned tRTP;   //time to switch from read to precharge in the same bank
   unsigned busW;
 
   unsigned nbkgrp;  // number of bank groups (has to be power of 2)
@@ -300,6 +315,11 @@ class memory_config {
       dram_atom_size;  // number of bytes transferred per read or write command
 
   linear_to_raw_address_translation m_address_mapping;
+
+  bool use_DRAMSim;
+  unsigned DRAMSim_channel_storage;
+
+  bool trace_enabled;
 
   unsigned icnt_flit_size;
 
@@ -319,6 +339,55 @@ class memory_config {
 };
 
 extern bool g_interactive_debugger_enabled;
+
+class gpu_graphics_config {
+ public:
+  void reg_options(OptionParser *opp);
+  void init() const {
+    g_renderData.initParams(
+        graphics_standalone_mode, start_frame, end_frame, start_call, end_call,
+        raster_tile_H, raster_tile_W, raster_block_H, raster_block_W, tc_h,
+        tc_w, tc_block_dim, vert_wg_size, frag_wg_size, pvb_size,
+        use_shader_blending, use_shader_depth_test, cpt_start_frame,
+        cpt_end_frame, cpt_period, skip_cpt_frames, output_dir);
+  }
+
+  // the start and the end frames for simulation
+  bool graphics_standalone_mode;
+  unsigned int start_frame;
+  unsigned int end_frame;
+  int start_call;
+  unsigned int end_call;
+  unsigned int raster_tile_H;
+  unsigned int raster_tile_W;
+  unsigned int raster_block_H;
+  unsigned int raster_block_W;
+  unsigned int use_shader_blending;
+  unsigned int use_shader_depth_test;
+  unsigned int cpt_start_frame;
+  unsigned int cpt_end_frame;
+  unsigned int cpt_period;
+  unsigned int setup_delay;
+  unsigned int setup_q_len;
+  unsigned int coarse_tiles;
+  unsigned int fine_tiles;
+  unsigned int hiz_tiles;
+  unsigned int tc_engines;
+  unsigned int tc_bins;
+  unsigned int tc_h;
+  unsigned int tc_w;
+  unsigned int tc_block_dim;
+  unsigned int tc_thresh;
+  unsigned int vert_wg_size;
+  unsigned int frag_wg_size;
+  unsigned int pvb_size;
+  unsigned int core_prim_pipe_size;
+  unsigned int core_prim_delay;
+  unsigned int core_prim_warps;
+
+  bool skip_cpt_frames;
+  char *output_dir;
+};
 
 class gpgpu_sim_config : public power_config,
                          public gpgpu_functional_sim_config {
@@ -356,11 +425,16 @@ class gpgpu_sim_config : public power_config,
     g_visualizer_filename = strdup(buf);
 
     m_valid = true;
+    gpu_graphics_configs.init();
   }
 
   unsigned num_shader() const { return m_shader_config.num_shader(); }
   unsigned num_cluster() const { return m_shader_config.n_simt_clusters; }
+  unsigned num_cores_per_cluster() const {
+    return m_shader_config.n_simt_cores_per_cluster;
+  };
   unsigned get_max_concurrent_kernel() const { return max_concurrent_kernel; }
+  gpu_graphics_config gpu_graphics_configs;
   unsigned checkpoint_option;
 
   size_t stack_limit() const { return stack_size_limit; }
@@ -532,6 +606,7 @@ class gpgpu_sim : public gpgpu_t {
   const gpgpu_sim_config &get_config() const { return m_config; }
   void gpu_print_stat();
   void dump_pipeline(int mask, int s, int m) const;
+  shader_core_ctx *get_shader(int id);
 
   void perf_memcpy_to_gpu(size_t dst_start_addr, size_t count);
 
@@ -557,7 +632,7 @@ class gpgpu_sim : public gpgpu_t {
    * Returning the cluster of of the shader core, used by the functional
    * simulation so far
    */
-  simt_core_cluster *getSIMTCluster();
+  simt_core_cluster **getSIMTCluster();
 
   void hit_watchpoint(unsigned watchpoint_num, ptx_thread_info *thd,
                       const ptx_instruction *pI);
@@ -571,6 +646,7 @@ class gpgpu_sim : public gpgpu_t {
   int next_clock_domain(void);
   void issue_block2core();
   void print_dram_stats(FILE *fout) const;
+  void zunit_print_stat() const;
   void shader_print_runtime_stat(FILE *fout);
   void shader_print_l1_miss_stat(FILE *fout) const;
   void shader_print_cache_stats(FILE *fout) const;

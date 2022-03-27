@@ -94,11 +94,11 @@ private:
   Flit();
   ~Flit() {}
 
-  static stack<Flit *> _all;
-  static stack<Flit *> _free;
+  static std::stack<Flit *> _all;
+  static std::stack<Flit *> _free;
 
 };
 
-ostream& operator<<( ostream& os, const Flit& f );
+std::ostream& operator<<(std::ostream& os, const Flit& f);
 
 #endif

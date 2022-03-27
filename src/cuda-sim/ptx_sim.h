@@ -305,6 +305,10 @@ class ptx_thread_info {
   }
 
   void ptx_fetch_inst(inst_t &inst) const;
+  int readRegister(const warp_inst_t &inst, unsigned lane_id, char *data,
+                   unsigned id = 1);
+  void writeRegister(const warp_inst_t &inst, unsigned lane_id, char *data);
+
   void ptx_exec_inst(warp_inst_t &inst, unsigned lane_id);
 
   const ptx_version &get_ptx_version() const;
@@ -347,13 +351,30 @@ class ptx_thread_info {
   unsigned get_hw_ctaid() const { return m_hw_ctaid; }
   unsigned get_hw_wid() const { return m_hw_wid; }
   unsigned get_hw_sid() const { return m_hw_sid; }
+
+  unsigned get_uid_in_kernel() {
+    dim3 gridDim = get_kernel_info()->get_grid_dim();
+    dim3 blockDim = get_kernel_info()->get_cta_dim();
+    dim3 blockIdx = get_ctaid();
+    dim3 threadIdx = get_tid();
+    unsigned blockId = blockIdx.x + blockIdx.y * gridDim.x +
+                       gridDim.x * gridDim.y * blockIdx.z;
+    unsigned threadId = blockId * (blockDim.x * blockDim.y * blockDim.z) +
+                        (threadIdx.z * (blockDim.x * blockDim.y)) +
+                        (threadIdx.y * blockDim.x) + threadIdx.x;
+    return threadId;
+  }
+
   core_t *get_core() { return m_core; }
 
   unsigned get_icount() const { return m_icount; }
   void set_valid() { m_valid = true; }
-  addr_t last_eaddr() const { return m_last_effective_address; }
+  addr_t last_eaddr() { return m_last_effective_address.getAddr(); }
+  addr_t *last_eaddrs() { return m_last_effective_address.getAddrp(); }
+  unsigned last_eaddrs_count() { return m_last_effective_address.getCount(); }
   memory_space_t last_space() const { return m_last_memory_space; }
   dram_callback_t last_callback() const { return m_last_dram_callback; }
+  zrop_callback_t last_zrop_callback() const { return m_last_zrop_callback;}
   unsigned long long get_cta_uid() { return m_cta_info->get_sm_idx(); }
 
   void set_single_thread_single_block() {
@@ -379,6 +400,19 @@ class ptx_thread_info {
   void set_nctaid(dim3 cta_size) { m_nctaid = cta_size; }
 
   unsigned get_builtin(int builtin_id, unsigned dim_mod);
+  void set_builtin_storage(int builtin_id, int builtin_idx, ptx_reg_t value) {
+    m_builtin_storage[builtin_id][builtin_idx] = value;
+  }
+
+  void set_builtin_dst(ptx_reg_t reg, int size) {
+    m_builtin_dst.reg = reg;
+    m_builtin_dst.valid = true;
+    m_builtin_dst.size = size;
+  }
+
+  ptx_reg_t get_builtin_storage(int builtin_id, unsigned builtin_idx) {
+    return m_builtin_storage[builtin_id][builtin_idx];
+  }
 
   void set_done();
   bool is_done() { return m_thread_done; }
@@ -437,12 +471,14 @@ class ptx_thread_info {
     return m_gpu->get_config();
   }
   bool isInFunctionalSimulationMode() { return m_functionalSimulationMode; }
-  void exitCore() {
-    // m_core is not used in case of functional simulation mode
-    if (!m_functionalSimulationMode) m_core->warp_exit(m_hw_wid);
-  }
+  // void exitCore() {
+  //   // m_core is not used in case of functional simulation mode
+  //   if (!m_functionalSimulationMode) m_core->warp_exit(m_hw_wid);
+  // }
+  void exitCore();
 
   void registerExit() { m_cta_info->register_thread_exit(this); }
+  kernel_info_t *get_kernel_info() const { return &m_kernel; }
   unsigned get_reduction_value(unsigned ctaid, unsigned barid) {
     return m_core->get_reduction_value(ctaid, barid);
   }
@@ -460,10 +496,30 @@ class ptx_thread_info {
   kernel_info_t &get_kernel() { return m_kernel; }
 
  public:
-  addr_t m_last_effective_address;
+  struct effecitve_address_t {
+    effecitve_address_t() { addrCount = 0; }
+    void set(addr_t addr) {
+      addresses[0] = addr;
+      addrCount = 1;
+    }
+    void set(addr_t addr, unsigned index) {
+      assert(index < MAX_ACCESSES_PER_INSN_PER_THREAD);
+      addresses[index] = addr;
+      addrCount = index + 1;
+    }
+    unsigned getCount() { return addrCount; }
+    addr_t getAddr() { return addresses[0]; }
+    addr_t *getAddrp() { return addresses; }
+
+   private:
+    addr_t addresses[MAX_ACCESSES_PER_INSN_PER_THREAD];
+    unsigned addrCount;
+  };
+  effecitve_address_t m_last_effective_address;
   bool m_branch_taken;
   memory_space_t m_last_memory_space;
   dram_callback_t m_last_dram_callback;
+  zrop_callback_t m_last_zrop_callback;
   memory_space *m_shared_mem;
   memory_space *m_sstarr_mem;
   memory_space *m_local_mem;
@@ -513,6 +569,20 @@ class ptx_thread_info {
   bool m_enable_debug_trace;
 
   std::stack<class operand_info, std::vector<operand_info> > m_breakaddrs;
+  struct ptx_reg_vector_t {
+    ptx_reg_t regs[4];
+    ptx_reg_t &operator[](unsigned i) {
+      assert(i < 4);
+      return regs[i];
+    }
+  };
+  std::map<int, ptx_reg_vector_t> m_builtin_storage;
+  struct builtin_dst_t {
+    ptx_reg_t reg;
+    int size;
+    bool valid;
+  };
+  builtin_dst_t m_builtin_dst;
 };
 
 addr_t generic_to_local(unsigned smid, unsigned hwtid, addr_t addr);
@@ -527,5 +597,7 @@ bool isspace_global(addr_t addr);
 memory_space_t whichspace(addr_t addr);
 
 extern unsigned g_ptx_thread_info_uid_next;
+shaderAttrib_t readShaderInputData(ptx_thread_info *thread, int builtin_id,
+                                   unsigned dim_mod);
 
 #endif
