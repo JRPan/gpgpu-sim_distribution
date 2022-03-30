@@ -4,9 +4,17 @@
 # SRCS = $(shell ls *.cc)
 
 # graphics:$(OBJS)
+DEBUG?=0
+
 
 include /home/pan251/accel-sim-framework/gpu-simulator/gpgpu-sim/src/graphics/Makefile.include
 CXXFLAGS += -I$(CUDA_INSTALL_PATH)/include
+ifneq ($(DEBUG),1)
+	BUILD_DIR = /home/pan251/accel-sim-framework/gpu-simulator/gpgpu-sim/build/gcc-7.5.0/cuda-11000/release/graphics
+else
+	BUILD_DIR = /home/pan251/accel-sim-framework/gpu-simulator/gpgpu-sim/build/gcc-7.5.0/cuda-11000/debug/graphics
+	CXXFLAGS += -DDEBUG
+endif
 
 CUDA_VERSION_STRING:=$(shell $(CUDA_INSTALL_PATH)/bin/nvcc --version | awk '/release/ {print $$5;}' | sed 's/,//')
 CUDART_VERSION:=$(shell echo $(CUDA_VERSION_STRING) | sed 's/\./ /' | awk '{printf("%02u%02u", 10*int($$1), 10*$$2);}')
@@ -18,7 +26,7 @@ CPP = g++ $(SNOW)
 OEXT = o
 
 # $(BUILD_DIR)/graphics.Makefile.makedepend: depend
-BUILD_DIR = /home/pan251/accel-sim-framework/gpu-simulator/gpgpu-sim/build/gcc-7.5.0/cuda-11000/release/graphics
+
 # SRCS = $(shell ls *.cc)
 SRCS = gpgpusim_to_graphics_calls.cc mesa_calls.cc mesa_gpgpusim.cc
 OBJS = $(SRCS:%.cc=$(BUILD_DIR)/%.$(OEXT))

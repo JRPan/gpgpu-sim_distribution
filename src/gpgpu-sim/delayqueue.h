@@ -79,7 +79,8 @@ class fifo_pipeline {
       m_length++;
       m_n_element++;
     }
-    if (!data) assert(0);
+    // TODO: This was used in the emerald but cause error in gpgpu-sim 4.x
+    // if (!data) assert(0);
     m_tail->m_next = NULL;
     m_tail->m_data = data;
   }
@@ -101,7 +102,8 @@ class fifo_pipeline {
         assert(m_head == NULL);
         m_tail = m_head;
       }
-      if (!data) assert(0);
+      // TODO: This was used in the emerald but cause error in gpgpu-sim 4.x
+      // if (!data) assert(0);
       m_n_element--;
       if (m_min_len && m_length < m_min_len) {
         push(NULL);

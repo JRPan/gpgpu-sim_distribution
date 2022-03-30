@@ -177,16 +177,16 @@ class memory_config {
       option_parser_register(dram_opp, "WR", OPT_UINT32, &tWR,
                              "last data-in to row precharge", "");
 
-      option_parser_register(dram_opp, "RCDWR", OPT_UINT32, &tRCDWR,
-                             "RAS to CAS delay for Write", "");
-      option_parser_register(dram_opp, "RTW", OPT_UINT32, &tRTW,
-                             "read to write delay", "");
-      option_parser_register(dram_opp, "RTP", OPT_UINT32, &tRTP,
-                             "read to precharge interval", "");
-      option_parser_register(dram_opp, "WTP", OPT_UINT32, &tWTP,
-                             "write to precharge interval", "");
+      // option_parser_register(dram_opp, "RCDWR", OPT_UINT32, &tRCDWR,
+      //                        "RAS to CAS delay for Write", "");
+      // option_parser_register(dram_opp, "RTW", OPT_UINT32, &tRTW,
+      //                        "read to write delay", "");
+      // option_parser_register(dram_opp, "RTP", OPT_UINT32, &tRTP,
+      //                        "read to precharge interval", "");
+      // option_parser_register(dram_opp, "WTP", OPT_UINT32, &tWTP,
+      //                        "write to precharge interval", "");
       option_parser_register(dram_opp, "FAW", OPT_UINT32, &tFAW,
-                             "Four-bank activation window", "");
+                             "Four-bank activation window", "0");
 
       option_parser_register(dram_opp, "CL", OPT_UINT32, &CL, "CAS latency",
                              "");

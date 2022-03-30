@@ -6096,58 +6096,56 @@ void ssy_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   // TODO: add implementation
 }
 
-// void st_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
-//   printf("JR - st_impl - this was removed in emerald\n");
-//   fflush(stdout);
-//   const operand_info &dst = pI->dst();
-//   const operand_info &src1 = pI->src1();  // may be scalar or vector of regs
-//   unsigned type = pI->get_type();
-//   ptx_reg_t addr_reg = thread->get_operand_value(dst, dst, type, thread, 1);
-//   ptx_reg_t data;
-//   memory_space_t space = pI->get_space();
-//   unsigned vector_spec = pI->get_vector();
+void st_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
+  const operand_info &dst = pI->dst();
+  const operand_info &src1 = pI->src1();  // may be scalar or vector of regs
+  unsigned type = pI->get_type();
+  ptx_reg_t addr_reg = thread->get_operand_value(dst, dst, type, thread, 1);
+  ptx_reg_t data;
+  memory_space_t space = pI->get_space();
+  unsigned vector_spec = pI->get_vector();
 
-//   memory_space *mem = NULL;
-//   addr_t addr = addr_reg.u32;
+  memory_space *mem = NULL;
+  addr_t addr = addr_reg.u32;
 
-//   decode_space(space, thread, dst, mem, addr);
+  decode_space(space, thread, dst, mem, addr);
 
-//   size_t size;
-//   int t;
-//   type_info_key::type_decode(type, size, t);
+  size_t size;
+  int t;
+  type_info_key::type_decode(type, size, t);
 
-//   if (!vector_spec) {
-//     data = thread->get_operand_value(src1, dst, type, thread, 1);
-//     mem->write(addr, size / 8, &data.s64, thread, pI);
-//   } else {
-//     if (vector_spec == V2_TYPE) {
-//       ptx_reg_t *ptx_regs = new ptx_reg_t[2];
-//       thread->get_vector_operand_values(src1, ptx_regs, 2);
-//       mem->write(addr, size / 8, &ptx_regs[0].s64, thread, pI);
-//       mem->write(addr + size / 8, size / 8, &ptx_regs[1].s64, thread, pI);
-//       delete[] ptx_regs;
-//     }
-//     if (vector_spec == V3_TYPE) {
-//       ptx_reg_t *ptx_regs = new ptx_reg_t[3];
-//       thread->get_vector_operand_values(src1, ptx_regs, 3);
-//       mem->write(addr, size / 8, &ptx_regs[0].s64, thread, pI);
-//       mem->write(addr + size / 8, size / 8, &ptx_regs[1].s64, thread, pI);
-//       mem->write(addr + 2 * size / 8, size / 8, &ptx_regs[2].s64, thread, pI);
-//       delete[] ptx_regs;
-//     }
-//     if (vector_spec == V4_TYPE) {
-//       ptx_reg_t *ptx_regs = new ptx_reg_t[4];
-//       thread->get_vector_operand_values(src1, ptx_regs, 4);
-//       mem->write(addr, size / 8, &ptx_regs[0].s64, thread, pI);
-//       mem->write(addr + size / 8, size / 8, &ptx_regs[1].s64, thread, pI);
-//       mem->write(addr + 2 * size / 8, size / 8, &ptx_regs[2].s64, thread, pI);
-//       mem->write(addr + 3 * size / 8, size / 8, &ptx_regs[3].s64, thread, pI);
-//       delete[] ptx_regs;
-//     }
-//   }
-//   thread->m_last_effective_address = addr;
-//   thread->m_last_memory_space = space;
-// }
+  if (!vector_spec) {
+    data = thread->get_operand_value(src1, dst, type, thread, 1);
+    mem->write(addr, size / 8, &data.s64, thread, pI);
+  } else {
+    if (vector_spec == V2_TYPE) {
+      ptx_reg_t *ptx_regs = new ptx_reg_t[2];
+      thread->get_vector_operand_values(src1, ptx_regs, 2);
+      mem->write(addr, size / 8, &ptx_regs[0].s64, thread, pI);
+      mem->write(addr + size / 8, size / 8, &ptx_regs[1].s64, thread, pI);
+      delete[] ptx_regs;
+    }
+    if (vector_spec == V3_TYPE) {
+      ptx_reg_t *ptx_regs = new ptx_reg_t[3];
+      thread->get_vector_operand_values(src1, ptx_regs, 3);
+      mem->write(addr, size / 8, &ptx_regs[0].s64, thread, pI);
+      mem->write(addr + size / 8, size / 8, &ptx_regs[1].s64, thread, pI);
+      mem->write(addr + 2 * size / 8, size / 8, &ptx_regs[2].s64, thread, pI);
+      delete[] ptx_regs;
+    }
+    if (vector_spec == V4_TYPE) {
+      ptx_reg_t *ptx_regs = new ptx_reg_t[4];
+      thread->get_vector_operand_values(src1, ptx_regs, 4);
+      mem->write(addr, size / 8, &ptx_regs[0].s64, thread, pI);
+      mem->write(addr + size / 8, size / 8, &ptx_regs[1].s64, thread, pI);
+      mem->write(addr + 2 * size / 8, size / 8, &ptx_regs[2].s64, thread, pI);
+      mem->write(addr + 3 * size / 8, size / 8, &ptx_regs[3].s64, thread, pI);
+      delete[] ptx_regs;
+    }
+  }
+  thread->m_last_effective_address.set(addr);
+  thread->m_last_memory_space = space;
+}
 
 void sub_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   ptx_reg_t data;
@@ -7310,19 +7308,22 @@ C_DATA_TYPE blendU32(C_DATA_TYPE color_src, C_DATA_TYPE color_dst){
 }
 
 C_DATA_TYPE get_final_color_result(zrop_callback_t::zrop_input_t color, new_addr_type addr) {
-    extern gpgpu_sim *g_the_gpu;
+    // extern gpgpu_sim *g_the_gpu;
 
-    if (isBlendingEnabled()) {
-        assert(!isDepthTestEnabled());
-        float as, rs, gs, bs;
-        getNormilizedRGBA(color, &rs, &gs, &bs, &as);
-        C_DATA_TYPE dest;
-        g_the_gpu->get_global_memory()->read(addr, C_DATA_SIZE, &dest);
-        float rd, bd, ad, gd;
-        getNormilizedRGBA(dest, &rd, &gd, &bd, &ad);
-        C_DATA_TYPE resultColor = blend(as, rs, bs, gs, ad, rd, bd, gd);
-        return resultColor;
-    }
+    // if (isBlendingEnabled()) {
+    //     assert(!isDepthTestEnabled());
+    //     float as, rs, gs, bs;
+    //     getNormilizedRGBA(color, &rs, &gs, &bs, &as);
+    //     C_DATA_TYPE dest;
+    //     g_the_gpu->get_global_memory()->read(addr, C_DATA_SIZE, &dest);
+    //     float rd, bd, ad, gd;
+    //     getNormilizedRGBA(dest, &rd, &gd, &bd, &ad);
+    //     C_DATA_TYPE resultColor = blend(as, rs, bs, gs, ad, rd, bd, gd);
+    //     return resultColor;
+    // }
+    printf("Blending not implemented");
+    fflush(stdout);
+    abort();
     
     return color;
 }
@@ -7400,69 +7401,55 @@ void video_mem_instruction(const ptx_instruction *pI, ptx_thread_info *thread,
   return;
 }
 
-void store_func( const ptx_instruction *pI, ptx_thread_info *thread ) 
-{
-   const operand_info &dst = pI->dst();
-   const operand_info &src1 = pI->src1(); //may be scalar or vector of regs
-   unsigned type = pI->get_type();
-   ptx_reg_t addr_reg = thread->get_operand_value(dst, dst, type, thread, 1);
-   ptx_reg_t data;
-   memory_space_t space = pI->get_space();
-   unsigned vector_spec = pI->get_vector();
-
-   memory_space *mem = NULL;
-   addr_t addr = addr_reg.u64;
-   decode_space(space,thread,dst,mem,addr);
-  //  thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_st(space);
-
-   if (space.get_type() != global_space &&
-       space.get_type() != const_space &&
-       space.get_type() != local_space) {
-   size_t size;
-   int t;
-   type_info_key::type_decode(type,size,t);
-
-   if (!vector_spec) {
-      data = thread->get_operand_value(src1, dst, type, thread, 1);
-      mem->write(addr,size/8,&data.s64,thread,pI);
-   } else {
-      if (vector_spec == V2_TYPE) {
-         ptx_reg_t* ptx_regs = new ptx_reg_t[2]; 
-         thread->get_vector_operand_values(src1, ptx_regs, 2); 
-         mem->write(addr,size/8,&ptx_regs[0].s64,thread,pI);
-         mem->write(addr+size/8,size/8,&ptx_regs[1].s64,thread,pI);
-         delete [] ptx_regs;
-      }
-      if (vector_spec == V3_TYPE) {
-         ptx_reg_t* ptx_regs = new ptx_reg_t[3]; 
-         thread->get_vector_operand_values(src1, ptx_regs, 3); 
-         mem->write(addr,size/8,&ptx_regs[0].s64,thread,pI);
-         mem->write(addr+size/8,size/8,&ptx_regs[1].s64,thread,pI);
-         mem->write(addr+2*size/8,size/8,&ptx_regs[2].s64,thread,pI);
-         delete [] ptx_regs;
-      }
-      if (vector_spec == V4_TYPE) {
-         ptx_reg_t* ptx_regs = new ptx_reg_t[4]; 
-         thread->get_vector_operand_values(src1, ptx_regs, 4); 
-         mem->write(addr,size/8,&ptx_regs[0].s64,thread,pI);
-         mem->write(addr+size/8,size/8,&ptx_regs[1].s64,thread,pI);
-         mem->write(addr+2*size/8,size/8,&ptx_regs[2].s64,thread,pI);
-         mem->write(addr+3*size/8,size/8,&ptx_regs[3].s64,thread,pI);
-         delete [] ptx_regs;
-      }
-   }
-   }
-   //printf("writing result to addres %x\n", addr);
-   thread->m_last_effective_address.set(addr);
-   thread->m_last_memory_space = space; 
-}
-
-void st_impl( const ptx_instruction *pI, ptx_thread_info *thread ) {
-   store_func(pI, thread);
-}
-
 void stv_impl( const ptx_instruction *pI, ptx_thread_info *thread ) {
-   store_func(pI, thread);
+  const operand_info &dst = pI->dst();
+  const operand_info &src1 = pI->src1();  // may be scalar or vector of regs
+  unsigned type = pI->get_type();
+  ptx_reg_t addr_reg = thread->get_operand_value(dst, dst, type, thread, 1);
+  ptx_reg_t data;
+  memory_space_t space = pI->get_space();
+  unsigned vector_spec = pI->get_vector();
+
+  memory_space *mem = NULL;
+  addr_t addr = addr_reg.u32;
+
+  decode_space(space, thread, dst, mem, addr);
+
+  size_t size;
+  int t;
+  type_info_key::type_decode(type, size, t);
+
+  if (!vector_spec) {
+    data = thread->get_operand_value(src1, dst, type, thread, 1);
+    mem->write(addr, size / 8, &data.s64, thread, pI);
+  } else {
+    if (vector_spec == V2_TYPE) {
+      ptx_reg_t *ptx_regs = new ptx_reg_t[2];
+      thread->get_vector_operand_values(src1, ptx_regs, 2);
+      mem->write(addr, size / 8, &ptx_regs[0].s64, thread, pI);
+      mem->write(addr + size / 8, size / 8, &ptx_regs[1].s64, thread, pI);
+      delete[] ptx_regs;
+    }
+    if (vector_spec == V3_TYPE) {
+      ptx_reg_t *ptx_regs = new ptx_reg_t[3];
+      thread->get_vector_operand_values(src1, ptx_regs, 3);
+      mem->write(addr, size / 8, &ptx_regs[0].s64, thread, pI);
+      mem->write(addr + size / 8, size / 8, &ptx_regs[1].s64, thread, pI);
+      mem->write(addr + 2 * size / 8, size / 8, &ptx_regs[2].s64, thread, pI);
+      delete[] ptx_regs;
+    }
+    if (vector_spec == V4_TYPE) {
+      ptx_reg_t *ptx_regs = new ptx_reg_t[4];
+      thread->get_vector_operand_values(src1, ptx_regs, 4);
+      mem->write(addr, size / 8, &ptx_regs[0].s64, thread, pI);
+      mem->write(addr + size / 8, size / 8, &ptx_regs[1].s64, thread, pI);
+      mem->write(addr + 2 * size / 8, size / 8, &ptx_regs[2].s64, thread, pI);
+      mem->write(addr + 3 * size / 8, size / 8, &ptx_regs[3].s64, thread, pI);
+      delete[] ptx_regs;
+    }
+  }
+  thread->m_last_effective_address.set(addr);
+  thread->m_last_memory_space = space;
 }
 
 void stp_impl( const ptx_instruction *pI, ptx_thread_info *thread ) 

@@ -57,7 +57,7 @@ endif
 
 $(shell mkdir -p $(SIM_OBJ_FILES_DIR)/libcuda && echo "const char *g_gpgpusim_build_string=\"$(GPGPUSIM_BUILD)\";" > $(SIM_OBJ_FILES_DIR)/detailed_version)
 
-LIBS = cuda-sim gpgpu-sim_uarch $(INTERSIM) gpgpusimlib
+LIBS = cuda-sim gpgpu-sim_uarch $(INTERSIM) gpgpusimlib graphics
 
 
 TARGETS =

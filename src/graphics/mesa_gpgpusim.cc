@@ -63,7 +63,6 @@ extern "C" {
 #include "../../libcuda/cuda_api_object.h"
 #include "../libcuda/cuda_runtime_api.hh"
 
-extern std::mutex g_gpuMutex;
 extern unsigned g_active_device;
 
 uint64_t g_startTick;
@@ -1126,7 +1125,7 @@ void renderData_t::registerPtxCode() {
 
 void renderData_t::initializeCurrentDraw(struct tgsi_exec_machine* tmachine,
                                          void* sp, void* mapped_indices) {
-  g_gpuMutex.lock();
+  // g_gpuMutex.lock();
   assert(getDeviceData() == NULL);
   m_deviceData = (byte*)0xDEADBEEF;  // flags that a render operation is active
   m_tmachine = tmachine;
@@ -1848,7 +1847,7 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
       active = m_gpgpu_sim->active();
 
     } while (active);
-    g_gpuMutex.unlock();
+    // g_gpuMutex.unlock();
   }
 
   void renderData_t::putDataOnColorBuffer() {

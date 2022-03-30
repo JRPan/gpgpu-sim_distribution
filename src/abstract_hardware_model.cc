@@ -850,6 +850,8 @@ kernel_info_t::kernel_info_t(
   cache_config_set = false;
   m_NameToCudaArray = nameToCudaArray;
   m_NameToTextureInfo = nameToTextureInfo;
+
+  m_isGraphicsKernel = false;
 }
 
 kernel_info_t::~kernel_info_t() {

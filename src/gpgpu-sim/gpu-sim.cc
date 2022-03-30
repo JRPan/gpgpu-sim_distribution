@@ -568,7 +568,7 @@ void shader_core_config::reg_options(class OptionParser *opp) {
 void gpu_graphics_config::reg_options(OptionParser *opp) {
   option_parser_register(
       opp, "-graphics_standalone_mode", OPT_BOOL, &graphics_standalone_mode,
-      "graphics: running in standalone mode (default=False)", "0");
+      "graphics: running in standalone mode (default=False)", "1");
   option_parser_register(
       opp, "-output_dir", OPT_CSTR, &output_dir,
       "graphics: where to write graphics shaders and frame dumps",
@@ -1496,9 +1496,10 @@ void gpgpu_sim::gpu_print_stat() {
     }
   }
 
-  for (unsigned i = 0; i < m_config.num_cluster(); i++) {
-    m_cluster[i]->print_graphics_stats(stdout);
-  }
+  // TODO: re-enable this
+  // for (unsigned i = 0; i < m_config.num_cluster(); i++) {
+  //   m_cluster[i]->print_graphics_stats(stdout);
+  // }
 
   if (m_config.gpgpu_cflog_interval != 0) {
     spill_log_to_file(stdout, 1, gpu_sim_cycle);

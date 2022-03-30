@@ -363,36 +363,37 @@ void memory_stats_t::memlatstat_print(unsigned n_mem, unsigned gpu_mem_n_bk,
     }
 
     /*Average bytes read per activate*/
-    printf("activates, read and written bytes per row\n");
+    // TODO:This was used in emerald. This works but not sure anyone cares
+    // printf("activates, read and written bytes per row\n");
 
-    for (i = 0; i < n_mem; i++) {
-      float totalActivates = 0;
-      float totalAcc = 0;
-      printf(
-          "\n\n Channel %d \n ---------------------------------------------\n",
-          i);
-      for (unsigned j = 0; j < gpu_mem_n_bk; j++) {
-        totalActivates += activatesSentPerBank[i][j];
-        totalAcc = totalAcc + readBytesAccessedPerBank[i][j] +
-                   writeBytesAccessedPerBank[i][j];
-        printf("Bank %d activates =%d\n", j, activatesSentPerBank[i][j]);
-        printf("Bank %d bytes read =%d\n", j, readBytesAccessedPerBank[i][j]);
-        printf("Bank %d bytes written =%d\n", j,
-               writeBytesAccessedPerBank[i][j]);
-        float accessesPerActivate = ((float)(readBytesAccessedPerBank[i][j] +
-                                             writeBytesAccessedPerBank[i][j])) /
-                                    activatesSentPerBank[i][j];
-        printf("Bank %d avg bytes accessed per activate=%f\n", j,
-               accessesPerActivate);
-        printf("Bank %d avg controller transfer cycles per activate=%f\n", j,
-               (accessesPerActivate / (bytesTransferedPerControlCycle)));
-        printf("\n");
-      }
-      printf("Channel avg accesses per activate = %f\n",
-             totalAcc / totalActivates);
-      printf("Channel avg controller transfer cycles per activate=%f\n",
-             totalAcc / totalActivates / bytesTransferedPerControlCycle);
-    }
+    // for (i = 0; i < n_mem; i++) {
+    //   float totalActivates = 0;
+    //   float totalAcc = 0;
+    //   printf(
+    //       "\n\n Channel %d \n ---------------------------------------------\n",
+    //       i);
+    //   for (unsigned j = 0; j < gpu_mem_n_bk; j++) {
+    //     totalActivates += activatesSentPerBank[i][j];
+    //     totalAcc = totalAcc + readBytesAccessedPerBank[i][j] +
+    //                writeBytesAccessedPerBank[i][j];
+    //     printf("Bank %d activates =%d\n", j, activatesSentPerBank[i][j]);
+    //     printf("Bank %d bytes read =%d\n", j, readBytesAccessedPerBank[i][j]);
+    //     printf("Bank %d bytes written =%d\n", j,
+    //            writeBytesAccessedPerBank[i][j]);
+    //     float accessesPerActivate = ((float)(readBytesAccessedPerBank[i][j] +
+    //                                          writeBytesAccessedPerBank[i][j])) /
+    //                                 activatesSentPerBank[i][j];
+    //     printf("Bank %d avg bytes accessed per activate=%f\n", j,
+    //            accessesPerActivate);
+    //     printf("Bank %d avg controller transfer cycles per activate=%f\n", j,
+    //            (accessesPerActivate / (bytesTransferedPerControlCycle)));
+    //     printf("\n");
+    //   }
+    //   printf("Channel avg accesses per activate = %f\n",
+    //          totalAcc / totalActivates);
+    //   printf("Channel avg controller transfer cycles per activate=%f\n",
+    //          totalAcc / totalActivates / bytesTransferedPerControlCycle);
+    // }
 
     /*AVERAGE ROW ACCESSES PER ACTIVATE*/
     int total_row_accesses = 0;

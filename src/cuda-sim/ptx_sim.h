@@ -471,11 +471,10 @@ class ptx_thread_info {
     return m_gpu->get_config();
   }
   bool isInFunctionalSimulationMode() { return m_functionalSimulationMode; }
-  // void exitCore() {
-  //   // m_core is not used in case of functional simulation mode
-  //   if (!m_functionalSimulationMode) m_core->warp_exit(m_hw_wid);
-  // }
-  void exitCore();
+  void exitCore() {
+    // m_core is not used in case of functional simulation mode
+    if (!m_functionalSimulationMode) m_core->warp_exit(m_hw_wid);
+  }
 
   void registerExit() { m_cta_info->register_thread_exit(this); }
   kernel_info_t *get_kernel_info() const { return &m_kernel; }

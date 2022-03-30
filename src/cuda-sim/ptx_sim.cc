@@ -633,14 +633,6 @@ void ptx_thread_info::set_npc(const function_info *f) {
   m_symbol_table = m_func_info->get_symtab();
 }
 
-void ptx_thread_info::exitCore(){
-   //m_core is not used in case of functional simulation mode
-   printf("JR - ptx_sim.cc - exitCore - try not to use this\n");
-   fflush(stdout);
-   if(!m_functionalSimulationMode)
-      m_core->warp_exit(m_hw_wid);
-}
-
 void feature_not_implemented(const char *f) {
   printf("GPGPU-Sim: feature '%s' not supported\n", f);
   abort();
