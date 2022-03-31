@@ -45,8 +45,6 @@ class memory_stats_t {
   void memlatstat_dram_access(class mem_fetch *mf);
   void memlatstat_icnt2mem_pop(class mem_fetch *mf);
   void memlatstat_lat_pw();
-  void memlatstat_print(unsigned n_mem, unsigned gpu_mem_n_bk,
-                        unsigned bytesTransferedPerControlCycle);
   void memlatstat_print(unsigned n_mem, unsigned gpu_mem_n_bk);
 
   void visualizer_print(gzFile visualizer_file);
@@ -121,9 +119,6 @@ class memory_stats_t {
   unsigned int **max_servicetime2samerow;  // max_servicetime2samerow[dram chip
                                            // id][bank id]
 
-  unsigned int **readBytesAccessedPerBank;
-  unsigned int **writeBytesAccessedPerBank;
-  unsigned int **activatesSentPerBank;
   // Power stats
   unsigned total_n_access;
   unsigned total_n_reads;

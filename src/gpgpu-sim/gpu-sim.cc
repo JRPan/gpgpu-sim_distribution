@@ -1448,9 +1448,6 @@ void gpgpu_sim::gpu_print_stat() {
 #endif
 
   // performance counter that are not local to one shader
-  m_memory_stats->memlatstat_print(
-      m_memory_config->m_n_mem, m_memory_config->nbk,
-      m_memory_config->busW * m_memory_config->data_command_freq_ratio);
   for (unsigned i = 0; i < m_memory_config->m_n_mem; i++)
     m_memory_partition_unit[i]->print(stdout);
 
