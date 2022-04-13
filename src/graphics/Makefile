@@ -41,7 +41,6 @@ depend:
 	makedepend -f$(BUILD_DIR)/graphics.Makefile.makedepend -p$(BUILD_DIR)/ $(SRCS) 2> /dev/null
 
 $(BUILD_DIR)/%.$(OEXT): %.cc
-	echo $(CUDART_VERSION)
 	$(CPP) $(OPTFLAGS) $(CXXFLAGS) -o $(BUILD_DIR)/$*.$(OEXT) -c $*.cc
 
 # include $(BUILD_DIR)/graphics.Makefile.makedepend

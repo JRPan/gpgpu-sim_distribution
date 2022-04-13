@@ -306,17 +306,36 @@ unsigned ptx_thread_info::get_builtin(int builtin_id, unsigned dim_mod) {
     case RB_SIZE:
       return readMESABufferSize();
     case FRAGMENT_ACTIVE:
-      return readShaderInputData(this, builtin_id, dim_mod).u32;
     case FQUAD_ACTIVE:
-      return readShaderInputData(this, builtin_id, dim_mod).u32;
     case SKIP_DEPTH_TEST:
-      return readShaderInputData(this, builtin_id, dim_mod).u32;
     case VERTEX_ACTIVE:
-      return readShaderInputData(this, builtin_id, dim_mod).u32;
     case VERT_ATTRIB0:
     case VERT_ATTRIB1:
     case VERT_ATTRIB2:
     case VERT_ATTRIB3:
+    case SHADER_CONST00:
+    case SHADER_CONST01:
+    case SHADER_CONST02:
+    case SHADER_CONST03:
+    case SHADER_CONST04:
+    case SHADER_CONST05:
+    case SHADER_CONST06:
+    case SHADER_CONST07:
+    case SHADER_CONST08:
+    case SHADER_CONST09:
+    case SHADER_CONST10:
+    case SHADER_CONST11:
+    case SHADER_CONST12:
+    case VERT_OUT0:
+    case VERT_OUT1:
+    case VERT_OUT2:
+    case VERT_OUT3:
+    case VERT_OUT4:
+    case SHADER_IN0:
+    case SHADER_IN1:
+    case SHADER_IN2:
+    case SHADER_IN3:
+    case SHADER_COLOR0:
       return readShaderInputData(this, builtin_id, dim_mod).u32;
     // default:
     //   return readShaderInputData(this, builtin_id, dim_mod).u32;

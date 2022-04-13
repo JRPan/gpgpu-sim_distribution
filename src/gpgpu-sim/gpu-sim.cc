@@ -1099,7 +1099,8 @@ bool gpgpu_sim::active() {
   if (m_config.gpu_max_completed_cta_opt &&
       (gpu_completed_cta >= m_config.gpu_max_completed_cta_opt))
     return false;
-  if (m_config.gpu_deadlock_detect && gpu_deadlock) return false;
+  // TODO: re-enable deadlock
+  // if (m_config.gpu_deadlock_detect && gpu_deadlock) return false;
   for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++)
     if (m_cluster[i]->get_not_completed() > 0) return true;
   ;
@@ -1994,7 +1995,7 @@ void gpgpu_sim::cycle() {
 #endif
 
     issue_block2core();
-    g_renderData.gpgpusim_cycle();
+    // g_renderData.gpgpusim_cycle();
     decrement_kernel_latency();
 
     // Depending on configuration, invalidate the caches once all of threads are

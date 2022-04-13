@@ -571,6 +571,39 @@ __host__ cudaError_t CUDARTAPI cudaDeviceGetLimitInternal(
   return g_last_cudaError = cudaSuccess;
 }
 
+void **weirdRegisterFuntion(void *fatCubin, const char *hostFun,
+                                  char *deviceFun, const char *ptxfile, const char *ptxinfo, gpgpu_context *gpgpu_ctx) {
+  gpgpu_context *ctx;
+  if (gpgpu_ctx) {
+    ctx = gpgpu_ctx;
+  } else {
+    ctx = GPGPU_Context();
+  }
+  if (g_debug_execution >= 3) {
+    announce_call(__my_func__);
+  }
+
+  CUctx_st *context = GPGPUSim_Context(ctx);
+  // TODO: ?use the same handle as the one in cudaRegisterFatBinaryInternal
+  static unsigned next_fat_bin_handle = 1;
+
+  unsigned long long fat_cubin_handle = next_fat_bin_handle;
+  next_fat_bin_handle++;
+
+  ctx->api->cuobjdumpRegisterFatBinary(fat_cubin_handle, ptxfile, context);
+  symbol_table *symtab = ctx->gpgpu_ptx_sim_load_ptx_from_filename(ptxfile);
+  context->add_binary(symtab, fat_cubin_handle);
+  ctx->gpgpu_ptxinfo_load_from_file(ptxinfo);
+  ctx->api->load_static_globals(symtab, STATIC_ALLOC_LIMIT, 0xFFFFFFFF,
+                           context->get_device()->get_gpgpu());
+  ctx->api->load_constants(symtab, STATIC_ALLOC_LIMIT,
+                      context->get_device()->get_gpgpu());
+
+
+  context->register_function(fat_cubin_handle, hostFun, deviceFun);
+  
+}
+
 void **cudaRegisterFatBinaryInternal(void *fatCubin,
                                      gpgpu_context *gpgpu_ctx) {
   gpgpu_context *ctx;
@@ -605,6 +638,7 @@ void **cudaRegisterFatBinaryInternal(void *fatCubin,
     // Skip cuda version check for pytorch application
     std::string app_binary_path = get_app_binary();
     int pos = app_binary_path.find("python");
+    pos = pos || app_binary_path.find("accel-sim");
     if (pos == std::string::npos) {
       // Not pytorch app : checking cuda version
       int app_cuda_version = get_app_cuda_version();
@@ -911,8 +945,107 @@ cudaError_t cudaSetupArgumentInternal(const void *arg, size_t size,
   return g_last_cudaError = cudaSuccess;
 }
 
+cudaError_t graphicsLaunchInternal(
+    const char *hostFun, kernel_info_t **kernel, gpgpu_context *gpgpu_ctx) {
+  // called in mesa3D, to launc graphic shaders as CUDA kernels
+  gpgpu_context *ctx;
+  if (gpgpu_ctx) {
+    ctx = gpgpu_ctx;
+  } else {
+    ctx = GPGPU_Context();
+  }
+  if (g_debug_execution >= 3) {
+    announce_call(__my_func__);
+  }
+  CUctx_st *context = GPGPUSim_Context(ctx);
+  char *mode = getenv("PTX_SIM_MODE_FUNC");
+  if (mode) sscanf(mode, "%u", &(ctx->func_sim->g_ptx_sim_mode));
+  gpgpusim_ptx_assert(!ctx->api->g_cuda_launch_stack.empty(),
+                      "empty launch stack");
+  kernel_config config = ctx->api->g_cuda_launch_stack.back();
+  {
+    dim3 gridDim = config.grid_dim();
+    dim3 blockDim = config.block_dim();
+    if (gridDim.x * gridDim.y * gridDim.z == 0 ||
+        blockDim.x * blockDim.y * blockDim.z == 0) {
+      // can't launch
+      printf("can't launch a empty kernel\n");
+      ctx->api->g_cuda_launch_stack.pop_back();
+      return g_last_cudaError = cudaErrorInvalidConfiguration;
+    }
+  }
+  struct CUstream_st *stream = config.get_stream();
+
+  printf("\nGPGPU-Sim PTX: cudaLaunch for 0x%p (mode=%s) on stream %u\n",
+         hostFun,
+         (ctx->func_sim->g_ptx_sim_mode) ? "functional simulation"
+                                         : "performance simulation",
+         stream ? stream->get_uid() : 0);
+  kernel_info_t *grid = ctx->api->gpgpu_cuda_ptx_sim_init_grid(
+      hostFun, config.get_args(), config.grid_dim(), config.block_dim(),
+      context, stream);
+      // save kernel to graphics
+      *kernel = grid;
+  // do dynamic PDOM analysis for performance simulation scenario
+  std::string kname = grid->name();
+  function_info *kernel_func_info = grid->entry();
+  if (kernel_func_info->is_pdom_set()) {
+    printf("GPGPU-Sim PTX: PDOM analysis already done for %s \n",
+           kname.c_str());
+  } else {
+    printf("GPGPU-Sim PTX: finding reconvergence points for \'%s\'...\n",
+           kname.c_str());
+    kernel_func_info->do_pdom();
+    kernel_func_info->set_pdom();
+  }
+  dim3 gridDim = config.grid_dim();
+  dim3 blockDim = config.block_dim();
+
+  gpgpu_t *gpu = context->get_device()->get_gpgpu();
+  checkpoint *g_checkpoint;
+  g_checkpoint = new checkpoint();
+  class memory_space *global_mem;
+  global_mem = gpu->get_global_memory();
+
+  if (gpu->resume_option == 1 && (grid->get_uid() == gpu->resume_kernel)) {
+    char f1name[2048];
+    snprintf(f1name, 2048, "checkpoint_files/global_mem_%d.txt",
+             grid->get_uid());
+
+    g_checkpoint->load_global_mem(global_mem, f1name);
+    for (int i = 0; i < gpu->resume_CTA; i++) grid->increment_cta_id();
+  }
+  if (gpu->resume_option == 1 && (grid->get_uid() < gpu->resume_kernel)) {
+    char f1name[2048];
+    snprintf(f1name, 2048, "checkpoint_files/global_mem_%d.txt",
+             grid->get_uid());
+
+    g_checkpoint->load_global_mem(global_mem, f1name);
+    printf("Skipping kernel %d as resuming from kernel %d\n", grid->get_uid(),
+           gpu->resume_kernel);
+    ctx->api->g_cuda_launch_stack.pop_back();
+    return g_last_cudaError = cudaSuccess;
+  }
+  if (gpu->checkpoint_option == 1 &&
+      (grid->get_uid() > gpu->checkpoint_kernel)) {
+    printf("Skipping kernel %d as checkpoint from kernel %d\n", grid->get_uid(),
+           gpu->checkpoint_kernel);
+    ctx->api->g_cuda_launch_stack.pop_back();
+    return g_last_cudaError = cudaSuccess;
+  }
+  printf(
+      "GPGPU-Sim PTX: pushing kernel \'%s\' to stream %u, gridDim= (%u,%u,%u) "
+      "blockDim = (%u,%u,%u) \n",
+      kname.c_str(), stream ? stream->get_uid() : 0, gridDim.x, gridDim.y,
+      gridDim.z, blockDim.x, blockDim.y, blockDim.z);
+  stream_operation op(grid, ctx->func_sim->g_ptx_sim_mode, stream);
+  ctx->the_gpgpusim->g_stream_manager->push(op);
+  ctx->api->g_cuda_launch_stack.pop_back();
+  return g_last_cudaError = cudaSuccess;
+}
+
 cudaError_t cudaLaunchInternal(const char *hostFun,
-                               gpgpu_context *gpgpu_ctx) {
+                               gpgpu_context *gpgpu_ctx = NULL) {
   gpgpu_context *ctx;
   if (gpgpu_ctx) {
     ctx = gpgpu_ctx;
@@ -4067,6 +4200,50 @@ kernel_info_t *cuda_runtime_api::gpgpu_cuda_ptx_sim_init_grid(
   kernel_info_t *result =
       new kernel_info_t(gridDim, blockDim, entry, gpu->getNameArrayMapping(),
                         gpu->getNameInfoMapping());
+  if (entry == NULL) {
+    printf(
+        "GPGPU-Sim PTX: ERROR launching kernel -- no PTX implementation found "
+        "for %p\n",
+        hostFun);
+    abort();
+  }
+  unsigned argcount = args.size();
+  unsigned argn = 1;
+  for (gpgpu_ptx_sim_arg_list_t::iterator a = args.begin(); a != args.end();
+       a++) {
+    entry->add_param_data(argcount - argn, &(*a));
+    argn++;
+  }
+
+  entry->finalize(result->get_param_memory());
+  gpgpu_ctx->func_sim->g_ptx_kernel_count++;
+  fflush(stdout);
+
+  if (g_debug_execution >= 4) {
+    entry->ptx_jit_config(g_mallocPtr_Size, result->get_param_memory(),
+                          (gpgpu_t *)context->get_device()->get_gpgpu(),
+                          gridDim, blockDim);
+  }
+
+  return result;
+}
+
+kernel_info_t *cuda_runtime_api::gpgpu_cuda_ptx_sim_init_grid(
+    const char *hostFun, gpgpu_ptx_sim_arg_list_t args, struct dim3 gridDim,
+    struct dim3 blockDim, CUctx_st *context, CUstream_st *stream) {
+  if (g_debug_execution >= 3) {
+    announce_call(__my_func__);
+  }
+  function_info *entry = context->get_kernel(hostFun);
+  gpgpu_t *gpu = context->get_device()->get_gpgpu();
+  /*
+  Passing a snapshot of the GPU's current texture mapping to the kernel's info
+  as kernels should use texture bindings present at the time of their launch.
+  */
+  kernel_info_t *result =
+      new kernel_info_t(gridDim, blockDim, entry, gpu->getNameArrayMapping(),
+                        gpu->getNameInfoMapping());
+  result->set_stream(stream);
   if (entry == NULL) {
     printf(
         "GPGPU-Sim PTX: ERROR launching kernel -- no PTX implementation found "

@@ -1376,6 +1376,7 @@ class ldst_unit : public pipelined_simd_unit {
   void print(FILE *fout) const;
   void print_cache_stats(FILE *fp, unsigned &dl1_accesses,
                          unsigned &dl1_misses);
+  // TODO: implement function below
   void print_cache_stats(FILE *fp, unsigned &dl1_accesses, unsigned &dl1_misses,
                          unsigned &l1c_accesses, unsigned &l1c_misses,
                          unsigned &l1t_accesses, unsigned &l1t_misses);

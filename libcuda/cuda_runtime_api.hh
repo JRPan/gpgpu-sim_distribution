@@ -32,7 +32,7 @@ cudaError_t cudaConfigureCallInternal(dim3 gridDim, dim3 blockDim,
 cudaError_t cudaSetupArgumentInternal(const void *arg, size_t size,
                                       size_t offset,
                                       gpgpu_context *gpgpu_ctx = NULL);
-cudaError_t cudaLaunchInternal(const char *hostFun,
+cudaError_t graphicsLaunchInternal(const char *hostFun, kernel_info_t **kernel, 
                                gpgpu_context *gpgpu_ctx = NULL);
 cudaError_t cudaStreamDestroyInternal(cudaStream_t stream,
                                       gpgpu_context *gpgpu_ctx = NULL);
@@ -43,3 +43,8 @@ void cudaRegisterFunctionInternal(void **fatCubinHandle, const char *hostFun,
                                   int thread_limit, uint3 *tid, uint3 *bid,
                                   dim3 *bDim, dim3 *gDim,
                                   gpgpu_context *gpgpu_ctx = NULL);
+// TODO: This is not weird at all. rename this
+void **weirdRegisterFuntion(void *fatCubin, const char *hostFun,
+                            char *deviceFun, const char *ptxfile,
+                            const char *ptxinfo,
+                            gpgpu_context *gpgpu_ctx = NULL);

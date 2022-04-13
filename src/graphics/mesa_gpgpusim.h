@@ -756,7 +756,7 @@ class renderData_t {
   cudaError_t graphicsConfigureCall(dim3 gridDim, dim3 blockDim,
                                         size_t sharedMem, cudaStream_t stream);
   cudaError_t graphicsSetupArgument(const void* arg, size_t size, size_t offset);
-  cudaError_t graphicsLaunch(const char* hostFun);
+  cudaError_t graphicsLaunch(const char* hostFun, kernel_info_t** kernel);
   cudaError_t graphicsStreamDestroy(
       cudaStream_t stream);
   void **graphicsRegisterFatBinary(void *fatCubin);

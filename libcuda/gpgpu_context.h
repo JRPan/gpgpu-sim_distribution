@@ -68,6 +68,7 @@ class gpgpu_context {
                                       unsigned source_num,
                                       unsigned sm_version = 20,
                                       int no_of_ptx = 0);
+  void gpgpu_ptxinfo_load_from_file(const char *infofile);
   void print_ptx_file(const char *p, unsigned source_num, const char *filename);
   class symbol_table *init_parser(const char *ptx_filename);
   class gpgpu_sim *gpgpu_ptx_sim_init_perf();

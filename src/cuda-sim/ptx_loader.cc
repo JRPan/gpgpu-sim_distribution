@@ -375,6 +375,20 @@ void gpgpu_context::gpgpu_ptx_info_load_from_filename(const char *filename,
   fclose(ptxinfo_in);
 }
 
+
+void gpgpu_context::gpgpu_ptxinfo_load_from_file(const char *ptx_info_file) {
+  printf("GPGPU-Sim PTX: using the provided PTX info file \"%s\"\n",
+         ptx_info_file);
+  FILE *ptxinfo_in;
+  ptxinfo->g_ptxinfo_filename = ptx_info_file;
+  ptxinfo_in = fopen(ptxinfo->g_ptxinfo_filename, "r");
+  ptxinfo_lex_init(&(ptxinfo->scanner));
+  ptxinfo_set_in(ptxinfo_in, ptxinfo->scanner);
+  ptxinfo_parse(ptxinfo->scanner, ptxinfo);
+  ptxinfo_lex_destroy(ptxinfo->scanner);
+  fclose(ptxinfo_in);
+}
+
 void gpgpu_context::gpgpu_ptxinfo_load_from_string(const char *p_for_info,
                                                    unsigned source_num,
                                                    unsigned sm_version,

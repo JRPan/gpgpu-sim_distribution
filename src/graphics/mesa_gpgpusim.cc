@@ -1090,6 +1090,7 @@ void renderData_t::setMesaCtx(struct gl_context* ctx) {
 }
 
 void renderData_t::registerPtxCode() {
+  // TODO: one at a time. Add frag later
   std::string frame_drawcall =
       std::to_string(m_currentFrame) + "_" + std::to_string(m_drawcall_num);
   std::string vertexPTXFile = m_vPTXPrfx + frame_drawcall + ".ptx";
@@ -1106,21 +1107,24 @@ void renderData_t::registerPtxCode() {
                                 std::to_string(getDrawcallNum());
   std::ofstream ptxInfoFile(ptxInfoFileName.c_str());
   assert(ptxInfoFile.is_open());
-  ptxInfoFile << vertexPtxInfo + fragmentPtxInfo;
+  ptxInfoFile << vertexPtxInfo;
   ptxInfoFile.close();
 
-  void** fatCubinHandle = graphicsRegisterFatBinary(cudaFatBin);
+  // void** fatCubinHandle = graphicsRegisterFatBinary(cudaFatBin);
+  weirdRegisterFuntion(cudaFatBin, (char*)getCurrentShaderId(VERTEX_PROGRAM),
+                       (char*)getCurrentShaderName(VERTEX_PROGRAM).c_str(),
+                       (char*)vertexPTXFile.c_str(), (char*)ptxInfoFileName.c_str());
 
-  graphicsRegisterFunction(fatCubinHandle, getCurrentShaderId(VERTEX_PROGRAM),
-                           (char*)getCurrentShaderName(VERTEX_PROGRAM).c_str(),
-                           getCurrentShaderName(VERTEX_PROGRAM).c_str(), -1,
-                           (uint3*)0, (uint3*)0, (dim3*)0, (dim3*)0, (int*)0);
+  // graphicsRegisterFunction(fatCubinHandle, getCurrentShaderId(VERTEX_PROGRAM),
+  //                          (char*)getCurrentShaderName(VERTEX_PROGRAM).c_str(),
+  //                          getCurrentShaderName(VERTEX_PROGRAM).c_str(), -1,
+  //                          (uint3*)0, (uint3*)0, (dim3*)0, (dim3*)0, (int*)0);
 
-  graphicsRegisterFunction(
-      fatCubinHandle, getCurrentShaderId(FRAGMENT_PROGRAM),
-      (char*)getCurrentShaderName(FRAGMENT_PROGRAM).c_str(),
-      getCurrentShaderName(FRAGMENT_PROGRAM).c_str(), -1, (uint3*)0, (uint3*)0,
-      (dim3*)0, (dim3*)0, (int*)0);
+  // graphicsRegisterFunction(
+  //     fatCubinHandle, getCurrentShaderId(FRAGMENT_PROGRAM),
+  //     (char*)getCurrentShaderName(FRAGMENT_PROGRAM).c_str(),
+  //     getCurrentShaderName(FRAGMENT_PROGRAM).c_str(), -1, (uint3*)0, (uint3*)0,
+  //     (dim3*)0, (dim3*)0, (int*)0);
 }
 
 void renderData_t::initializeCurrentDraw(struct tgsi_exec_machine* tmachine,
@@ -1419,8 +1423,8 @@ cudaError_t renderData_t::graphicsSetupArgument(const void* arg, size_t size,
   return cudaSetupArgumentInternal(arg, size, offset);
 }
 
-cudaError_t renderData_t::graphicsLaunch(const char* hostFun) {
-  return cudaLaunchInternal(hostFun);
+cudaError_t renderData_t::graphicsLaunch(const char* hostFun, kernel_info_t** kernel) {
+  return graphicsLaunchInternal(hostFun, kernel);
 }
 
 cudaError_t renderData_t::graphicsStreamDestroy(cudaStream_t stream) {
@@ -2174,12 +2178,12 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
              cudaSuccess);
       assert(graphicsSetupArgument((void*)&arg, sizeof(byte*), 0) ==
              cudaSuccess);
-      assert(graphicsLaunch(getCurrentShaderId(VERTEX_PROGRAM))
+      assert(graphicsLaunch(getCurrentShaderId(VERTEX_PROGRAM),
              // &m_sShading_info.vertCodeAddr,
-             // &m_sShading_info.vertKernel)
+             &m_sShading_info.vertKernel)
              == cudaSuccess);
       assert(m_sShading_info.vertKernel != NULL);
-      assert(m_sShading_info.vertCodeAddr != NULL);
+      // assert(m_sShading_info.vertCodeAddr != NULL);
       m_sShading_info.pending_kernels++;
     } else {
       m_sShading_info.vertKernel->add_blocks(
@@ -2325,10 +2329,11 @@ unsigned Utils::replaceStringInFile(std::string filename, std::string oldString,
   if (in) {
     contents << in.rdbuf();
     in.close();
-  } else
+  } else {
     printf("Unable to open file: %s\n", filename.c_str());
     fflush(stdout);
     abort();
+  }
   std::string fileStr = contents.str();
   std::size_t loc = fileStr.find(oldString);
   if (loc != std::string::npos) {

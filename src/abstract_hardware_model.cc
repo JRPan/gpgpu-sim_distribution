@@ -475,7 +475,7 @@ void warp_inst_t::generate_mem_accesses() {
     for (unsigned thread = 0; thread < m_config->warp_size; thread++) {
       if (!active(thread)) continue;
 
-      if (textureFile and space.get_type() == tex_space)
+      if (textureFile && space.get_type() == tex_space)
         fprintf(textureFile, "thread %d accesses:", thread);
       for (unsigned req = 0; req < m_per_scalar_thread[thread].memreqsCount;
            req++) {
@@ -483,14 +483,11 @@ void warp_inst_t::generate_mem_accesses() {
         new_addr_type block_address =
             line_size_based_tag_func(addr, cache_block_size);
         accesses[block_address].set(thread);
-        if (textureFile and space.get_type() == tex_space)
+        if (textureFile && space.get_type() == tex_space)
           fprintf(textureFile, "%llx,", addr);
+        unsigned idx = addr - block_address;
+        for (unsigned i = 0; i < data_size; i++) byte_mask.set(idx + i);
       }
-      new_addr_type addr = m_per_scalar_thread[thread].memreqaddr[0];
-      new_addr_type block_address =
-          line_size_based_tag_func(addr, cache_block_size);
-      unsigned idx = addr - block_address;
-      for (unsigned i = 0; i < data_size; i++) byte_mask.set(idx + i);
     }
     for (a = accesses.begin(); a != accesses.end(); ++a)
       m_accessq.push_back(mem_access_t(
@@ -852,6 +849,7 @@ kernel_info_t::kernel_info_t(
   m_NameToTextureInfo = nameToTextureInfo;
 
   m_isGraphicsKernel = false;
+  m_drawCallDone = false;
 }
 
 kernel_info_t::~kernel_info_t() {

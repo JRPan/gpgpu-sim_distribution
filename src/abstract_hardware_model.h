@@ -275,6 +275,10 @@ class kernel_info_t {
     return m_stream;
   }
 
+  void set_stream(CUstream_st *stream) {
+    m_stream = stream;
+  }
+
   // The following functions access texture bindings present at the kernel's
   // launch
 

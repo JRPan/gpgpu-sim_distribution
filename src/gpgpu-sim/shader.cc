@@ -2188,10 +2188,11 @@ bool ldst_unit::constant_cycle(warp_inst_t &inst, mem_stage_stall_type &rc_fail,
   mem_stage_stall_type fail;
   if (m_config->perfect_inst_const_cache) {
     fail = NO_RC_FAIL;
+    unsigned access_count = inst.accessq_count();
     while (inst.accessq_count() > 0) inst.accessq_pop_back();
     if (inst.is_load()) {
       for (unsigned r = 0; r < MAX_OUTPUT_VALUES; r++)
-        if (inst.out[r] > 0) m_pending_writes[inst.warp_id()][inst.out[r]]--;
+        if (inst.out[r] > 0) m_pending_writes[inst.warp_id()][inst.out[r]]-= access_count;
     }
   } else {
     fail = process_memory_access_queue(m_L1C, inst);
@@ -3983,8 +3984,9 @@ void shader_core_ctx::print_cache_stats(FILE *fp, unsigned &dl1_accesses,
 void shader_core_ctx::print_cache_stats(FILE *fp, unsigned &dl1_accesses, unsigned &dl1_misses,
                        unsigned &l1c_accesses, unsigned &l1c_misses,
                        unsigned &l1t_accesses, unsigned &l1t_misses) {
-  m_ldst_unit->print_cache_stats(fp, dl1_accesses, dl1_misses, l1c_accesses,
-                                 l1c_misses, l1t_accesses, l1t_misses);
+  // m_ldst_unit->print_cache_stats(fp, dl1_accesses, dl1_misses, l1c_accesses,
+  //                                l1c_misses, l1t_accesses, l1t_misses);
+  m_ldst_unit->print_cache_stats(fp, dl1_accesses, dl1_misses);
 }
 
 void shader_core_ctx::get_cache_stats(cache_stats &cs) {
