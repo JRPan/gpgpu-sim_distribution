@@ -289,6 +289,9 @@ bool stream_manager::register_finished_kernel(unsigned grid_uid) {
       stream->record_next_done();
       m_grid_id_to_stream.erase(grid_uid);
       kernel->notify_parent_finished();
+      if(kernel->isGraphicsKernel()) {
+       g_renderData.checkEndOfShader();
+    }
       delete kernel;
       return true;
     }
