@@ -1000,6 +1000,7 @@ cudaError_t graphicsLaunchInternal(
   }
   dim3 gridDim = config.grid_dim();
   dim3 blockDim = config.block_dim();
+  grid->setGraphicsKernel();
 
   gpgpu_t *gpu = context->get_device()->get_gpgpu();
   checkpoint *g_checkpoint;
