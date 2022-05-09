@@ -633,7 +633,7 @@ class renderData_t {
   }
 
   // gem5 calls
-  // void checkEndOfShader(CudaGPU* cudaGPU);
+  void checkEndOfShader();
   // void doneEarlyZ();
   // void launchFragmentTile(RasterTile* rasterTile, unsigned tileId);
   void launchVRTile();
@@ -826,6 +826,8 @@ class renderData_t {
   struct tgsi_exec_machine* m_tmachine;
   void* m_sp;
   void* m_mapped_indices;
+
+  bool m_vertex_copy_done;
   class texelInfo_t {
    public:
     struct mipmapInfo_t {

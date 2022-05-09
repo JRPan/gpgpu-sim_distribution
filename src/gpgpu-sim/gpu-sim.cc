@@ -1995,7 +1995,7 @@ void gpgpu_sim::cycle() {
 #endif
 
     issue_block2core();
-    // g_renderData.gpgpusim_cycle();
+    g_renderData.gpgpusim_cycle();
     decrement_kernel_latency();
 
     // Depending on configuration, invalidate the caches once all of threads are
