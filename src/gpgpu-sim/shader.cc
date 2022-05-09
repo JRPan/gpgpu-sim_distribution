@@ -2243,7 +2243,22 @@ bool ldst_unit::memory_cycle(warp_inst_t &inst,
     // skip L1 cache if the option is enabled
     if (m_core->get_config()->gmem_skip_L1D && (CACHE_L1 != inst.cache_op))
       bypassL1D = true;
+  } else if (inst.mem_op == TEX) {
+    bypassL1D = true;
   }
+
+  if(inst.space.is_vert() && inst.is_store()){
+    unsigned kwip = (m_core->get_thread(inst.warp_id()*inst.warp_size())->get_uid_in_kernel())/MAX_WARP_SIZE;
+    m_core->can_vert_write(kwip, inst);
+    m_core->signal_attrib_done(kwip, inst.active_count());
+    // just mark as ready
+
+    // if(!shaderImpl->can_vert_write(kwip, inst))
+          // return true;
+       //vertex ouput uses trivial coalescing
+      //  assert(inst.is_store());
+  }
+
   if (bypassL1D) {
     // bypass L1 cache
     unsigned control_size =
