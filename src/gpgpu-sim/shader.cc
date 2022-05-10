@@ -2227,8 +2227,7 @@ bool ldst_unit::memory_cycle(warp_inst_t &inst,
                              mem_stage_access_type &access_type) {
   if (inst.empty() || ((inst.space.get_type() != global_space) &&
                        (inst.space.get_type() != local_space) &&
-                       (inst.space.get_type() != param_space_local) &&
-                       (inst.space.get_type() != tex_space)))
+                       (inst.space.get_type() != param_space_local)))
     return true;
   if (inst.active_count() == 0) return true;
   if (inst.accessq_empty()) return true;
@@ -2243,8 +2242,6 @@ bool ldst_unit::memory_cycle(warp_inst_t &inst,
     // skip L1 cache if the option is enabled
     if (m_core->get_config()->gmem_skip_L1D && (CACHE_L1 != inst.cache_op))
       bypassL1D = true;
-  } else if (inst.mem_op == TEX) {
-    bypassL1D = true;
   }
 
   if(inst.space.is_vert() && inst.is_store()){
