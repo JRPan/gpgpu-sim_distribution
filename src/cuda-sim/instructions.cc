@@ -6790,199 +6790,232 @@ void tex_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
 }
 */
 
-void tex_impl( const ptx_instruction *pI, ptx_thread_info *thread){
-  printf("JR - tex_impl - all copied from emerald\n");
+void tex_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
+  // printf("JR - tex_impl - all copied from emerald\n");
+  // fflush(stdout);
+  bool isTxf = (pI->to_string().find("txf") != std::string::npos);
+  bool isTxp = (pI->to_string().find("txp") != std::string::npos);
+  bool isTxb = (pI->to_string().find("txb") != std::string::npos);
+  unsigned dimension = pI->dimension();
+  const operand_info &dst =
+      pI->dst();  // the registers to which fetched texel will be placed
+  const operand_info &src1 = pI->src1();  // the name of the texture
+  const operand_info &src2 =
+      pI->src2();  // the vector registers containing coordinates of the texel
+                   // to be fetched
+  std::string textureName = src1.name();
+
+  if (isTxf or isTxb or isTxp)
+    assert(textureName.find("TGSI_SAMP") != std::string::npos);
+  // using the texture name to distinguish between graphics and gpgpu textures
+  // which would change where the texture data are fetched from and how their
+  // accesses are generated
+
+  unsigned to_type = pI->get_type();
+  unsigned coords_type = pI->get_type2();
   fflush(stdout);
-   bool isTxf = (pI->to_string().find("txf") != std::string::npos);
-   bool isTxp = (pI->to_string().find("txp") != std::string::npos);
-   bool isTxb = (pI->to_string().find("txb") != std::string::npos);
-   unsigned dimension = pI->dimension();
-   const operand_info &dst = pI->dst(); //the registers to which fetched texel will be placed
-   const operand_info &src1 = pI->src1(); //the name of the texture
-   const operand_info &src2 = pI->src2(); //the vector registers containing coordinates of the texel to be fetched
-   std::string textureName = src1.name();
-
-   if(isTxf or isTxb or isTxp)
-     assert(textureName.find("TGSI_SAMP") != std::string::npos);
-   //using the texture name to distinguish between graphics and gpgpu textures
-   //which would change where the texture data are fetched from and how their
-   //accesses are generated
-   
-   unsigned to_type = pI->get_type();
-   unsigned coords_type = pI->get_type2();
-   fflush(stdout);
-   ptx_reg_t* ptx_tex_regs[TGSI_QUAD_SIZE];
-   unsigned src_elems = src2.get_vect_nelem();
+  ptx_reg_t *ptx_tex_regs[TGSI_QUAD_SIZE];
+  unsigned src_elems = src2.get_vect_nelem();
   //  thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_ld(tex_space);
-   //registers to save return data
-   ptx_reg_t dataX, dataY, dataZ, dataW;
+  // registers to save return data
+  ptx_reg_t dataX, dataY, dataZ, dataW;
 
-   if(textureName.find("TGSI_SAMP") == std::string::npos){
-     gpgpu_sim *gpu = thread->get_gpu();
-     const struct textureReference* texref = gpu->get_texref(textureName);
-     const struct cudaArray* cuArray = gpu->get_texarray(textureName); 
-     ptx_tex_regs[0] = new ptx_reg_t[4];
-     thread->get_vector_operand_values(src2, ptx_tex_regs[0], src_elems); //ptx_reg should be 4 entry vector type...coordinates into texture
-     //check that our texels align with texture line size as we assume this when we retrieve and then writeback texels data
-     unsigned const texelSize= (cuArray->desc.x + cuArray->desc.y + cuArray->desc.z +cuArray->desc.w)/8;
-     assert(texelSize %thread->get_gpu()->get_config().get_texcache_linesize());
+  if (textureName.find("TGSI_SAMP") == std::string::npos) {
+    gpgpu_sim *gpu = thread->get_gpu();
+    const struct textureReference *texref = gpu->get_texref(textureName);
+    const struct cudaArray *cuArray = gpu->get_texarray(textureName);
+    ptx_tex_regs[0] = new ptx_reg_t[4];
+    thread->get_vector_operand_values(
+        src2, ptx_tex_regs[0], src_elems);  // ptx_reg should be 4 entry vector
+                                            // type...coordinates into texture
+    // check that our texels align with texture line size as we assume this when
+    // we retrieve and then writeback texels data
+    unsigned const texelSize = (cuArray->desc.x + cuArray->desc.y +
+                                cuArray->desc.z + cuArray->desc.w) /
+                               8;
+    assert(texelSize % thread->get_gpu()->get_config().get_texcache_linesize());
 
-     //assume always 2D f32 input
-     //access array with src2 coordinates
-     float x_f32=0;
-     float y_f32=0;
-     unsigned int texture_width = cuArray->width;
-     unsigned int texture_height = cuArray->height;
-     new_addr_type tex_array_base = (new_addr_type) cuArray->devPtr;
-     //------------------------------------------
+    // assume always 2D f32 input
+    // access array with src2 coordinates
+    float x_f32 = 0;
+    float y_f32 = 0;
+    unsigned int texture_width = cuArray->width;
+    unsigned int texture_height = cuArray->height;
+    new_addr_type tex_array_base = (new_addr_type)cuArray->devPtr;
+    //------------------------------------------
 
-     switch ( coords_type ) {
-       case S32_TYPE:
-         x_f32 = ptx_tex_regs[0][0].s32; 
-         y_f32 = ptx_tex_regs[0][1].s32; 
-       case F32_TYPE: 
-         x_f32 = reduce_precision(ptx_tex_regs[0][0].f32,16);
-         y_f32 = reduce_precision(ptx_tex_regs[0][1].f32,15);
-     }
-     //3D is not supported now
-     assert(dimension!=GEOM_MODIFIER_3D); 
+    switch (coords_type) {
+      case S32_TYPE:
+        x_f32 = ptx_tex_regs[0][0].s32;
+        y_f32 = ptx_tex_regs[0][1].s32;
+      case F32_TYPE:
+        x_f32 = reduce_precision(ptx_tex_regs[0][0].f32, 16);
+        y_f32 = reduce_precision(ptx_tex_regs[0][1].f32, 15);
+    }
+    // 3D is not supported now
+    assert(dimension != GEOM_MODIFIER_3D);
 
-     delete [] ptx_tex_regs[0];
+    delete[] ptx_tex_regs[0];
 
-     //channels should be a multiple of byte in size
-     assert(!(cuArray->desc.x%8) and !(cuArray->desc.y%8) and !(cuArray->desc.z%8) and !(cuArray->desc.w%8));
+    // channels should be a multiple of byte in size
+    assert(!(cuArray->desc.x % 8) and !(cuArray->desc.y % 8) and
+           !(cuArray->desc.z % 8) and !(cuArray->desc.w % 8));
 
-     if(texref->normalized){
-       x_f32*= texture_width;
-       y_f32*= texture_height;
-     } else {
-       //only valid with normalized mode the wrap and the mirror as well which is not supported here anyway
-       assert(texref->addressMode[0]!=cudaAddressModeWrap);
-       assert(texref->addressMode[1]!=cudaAddressModeWrap);
-     }
+    if (texref->normalized) {
+      x_f32 *= texture_width;
+      y_f32 *= texture_height;
+    } else {
+      // only valid with normalized mode the wrap and the mirror as well which
+      // is not supported here anyway
+      assert(texref->addressMode[0] != cudaAddressModeWrap);
+      assert(texref->addressMode[1] != cudaAddressModeWrap);
+    }
 
-     //clamping or wrapping each dimension we support, namely x and y
-     x_f32 = applyTexAddressingMode(x_f32,texref->addressMode[0],texture_width);
-     y_f32 = applyTexAddressingMode(y_f32,texref->addressMode[1],texture_height);
+    // clamping or wrapping each dimension we support, namely x and y
+    x_f32 =
+        applyTexAddressingMode(x_f32, texref->addressMode[0], texture_width);
+    y_f32 =
+        applyTexAddressingMode(y_f32, texref->addressMode[1], texture_height);
 
-     std::vector<samplePointLocation> samplingPoints;   
-     samplingPoints = getSamplingPoints(x_f32, y_f32, dimension, texref->filterMode);
+    std::vector<samplePointLocation> samplingPoints;
+    samplingPoints =
+        getSamplingPoints(x_f32, y_f32, dimension, texref->filterMode);
 
-     //bytes per texture texel
-     unsigned texelBytes = (cuArray->desc.w+cuArray->desc.x+cuArray->desc.y+cuArray->desc.z)/8;
-     unsigned textureWidthBytes = texture_width * texelBytes;
+    // bytes per texture texel
+    unsigned texelBytes = (cuArray->desc.w + cuArray->desc.x + cuArray->desc.y +
+                           cuArray->desc.z) /
+                          8;
+    unsigned textureWidthBytes = texture_width * texelBytes;
 
+    for (int point = 0; point < samplingPoints.size(); point++) {
+      new_addr_type reqTexAddr =
+          samplingPoints[point].y *
+          textureWidthBytes;  // counting for the y, in case of 1D always y=0
+      reqTexAddr +=
+          samplingPoints[point].x * texelBytes;  // the address of the texture
+      // samplePointInfo_t spa(reqTexAddr,samplingPoints[point].factor,
+      // texelSize); requetedTexelAddresses.push_back(spa); printf("fetching
+      // texel address = %x\n", tex_array_base+reqTexAddr);
+      thread->m_last_effective_address.set(tex_array_base + reqTexAddr, point);
 
-     for(int point=0;point<samplingPoints.size();point++){
-       new_addr_type reqTexAddr= samplingPoints[point].y * textureWidthBytes; //counting for the y, in case of 1D always y=0
-       reqTexAddr+=samplingPoints[point].x * texelBytes; //the address of the texture 
-       //samplePointInfo_t spa(reqTexAddr,samplingPoints[point].factor, texelSize); 
-       //requetedTexelAddresses.push_back(spa);
-       //printf("fetching texel address = %x\n", tex_array_base+reqTexAddr);
-       thread->m_last_effective_address.set(tex_array_base+reqTexAddr, point);
+      float factor = samplingPoints[point].factor;
+      void *texelDataAddr = cuArray->texData + reqTexAddr;
+      // new_addr_type texelDataAddr =
+      // ((new_addr_type)cuArray->texData)+reqTexAddr;
 
-       float factor = samplingPoints[point].factor;
-       void* texelDataAddr = cuArray->texData+reqTexAddr;
-       //new_addr_type texelDataAddr = ((new_addr_type)cuArray->texData)+reqTexAddr;
+      new_addr_type offset = 0;
+      if (cuArray->desc.x) {
+        getTexelData(thread, offset, &dataX, factor, to_type,
+                     cuArray->desc.x / 8, texelDataAddr);
+        offset += cuArray->desc.x / 8;
+      }
+      if (cuArray->desc.y) {
+        getTexelData(thread, offset, &dataY, factor, to_type,
+                     cuArray->desc.y / 8, texelDataAddr);
+        offset += cuArray->desc.y / 8;
+      }
+      if (cuArray->desc.z) {
+        getTexelData(thread, offset, &dataZ, factor, to_type,
+                     cuArray->desc.z / 8, texelDataAddr);
+        offset += cuArray->desc.z / 8;
+      }
+      if (cuArray->desc.w) {
+        getTexelData(thread, offset, &dataW, factor, to_type,
+                     cuArray->desc.w / 8, texelDataAddr);
+        offset += cuArray->desc.w / 8;
+      }
+    }
 
-       new_addr_type offset =0;
-       if(cuArray->desc.x){
-         getTexelData(thread, offset,&dataX, factor, to_type,
-                      cuArray->desc.x/8, texelDataAddr);
-         offset+= cuArray->desc.x/8;
-       }
-       if(cuArray->desc.y){
-         getTexelData(thread, offset,&dataY, factor, to_type,
-                      cuArray->desc.y/8, texelDataAddr);
-         offset+= cuArray->desc.y/8;
-       }
-       if(cuArray->desc.z){
-         getTexelData(thread, offset,&dataZ, factor, to_type,
-                      cuArray->desc.z/8, texelDataAddr);
-         offset+= cuArray->desc.z/8;
-       }
-       if(cuArray->desc.w){
-         getTexelData(thread, offset,&dataW, factor, to_type,
-                      cuArray->desc.w/8, texelDataAddr);
-         offset+= cuArray->desc.w/8;
-       }
-     }
-
-     const struct textureReferenceAttr* texAttr = gpu->get_texattr(textureName);
-     if (texAttr->m_readmode == cudaReadModeNormalizedFloat) {
-       textureNormalizeOutput(cuArray->desc, dataX, dataY, dataZ, dataW);
-     } else {
-       assert(texAttr->m_readmode == cudaReadModeElementType);
-     }
-     thread->set_vector_operand_values(dst,dataX,dataY,dataZ,dataW);
-   } else {
-     assert(coords_type==F32_TYPE);
-     unsigned uniqueThreadId = thread->get_uid_in_kernel();
-     void* stream = thread->get_kernel_info()->get_stream();
-     const unsigned hwtid = thread->get_hw_tid();
-     float* fcoords = g_renderData.getTexCoords(uniqueThreadId, stream);
-     bool del_fcoords = false;
-     if(fcoords == NULL){
-        fcoords = new float[TGSI_QUAD_SIZE*4];
-        del_fcoords = true;
-        for(unsigned qf=0; qf<TGSI_QUAD_SIZE; qf++)
-           ptx_tex_regs[qf] = new ptx_reg_t[4];
-        unsigned startFrag = (hwtid/TGSI_QUAD_SIZE)*TGSI_QUAD_SIZE;
-        unsigned endFrag = startFrag + TGSI_QUAD_SIZE - 1;
-        for(unsigned qf=startFrag; qf <= endFrag; qf++){
-           //assert(!thread->get_core()->get_thread(qf)->is_done());
-           thread->get_core()->get_thread(qf)->get_vector_operand_values(
-                 src2, ptx_tex_regs[qf-startFrag], src_elems);
-           for(unsigned c=0; c<4; c++){
-              fcoords[(qf-startFrag)*TGSI_QUAD_SIZE+c] = ptx_tex_regs[qf-startFrag][c].f32;
-           }
+    const struct textureReferenceAttr *texAttr = gpu->get_texattr(textureName);
+    if (texAttr->m_readmode == cudaReadModeNormalizedFloat) {
+      textureNormalizeOutput(cuArray->desc, dataX, dataY, dataZ, dataW);
+    } else {
+      assert(texAttr->m_readmode == cudaReadModeElementType);
+    }
+    thread->set_vector_operand_values(dst, dataX, dataY, dataZ, dataW);
+  } else {
+    assert(coords_type == F32_TYPE);
+    unsigned uniqueThreadId = thread->get_uid_in_kernel();
+    void *stream = thread->get_kernel_info()->get_stream();
+    const unsigned hwtid = thread->get_hw_tid();
+    float *fcoords = g_renderData.getTexCoords(uniqueThreadId, stream);
+    bool del_fcoords = false;
+    if (fcoords == NULL) {
+      fcoords = new float[TGSI_QUAD_SIZE * 4];
+      del_fcoords = true;
+      for (unsigned qf = 0; qf < TGSI_QUAD_SIZE; qf++)
+        ptx_tex_regs[qf] = new ptx_reg_t[4];
+      unsigned startFrag = (hwtid / TGSI_QUAD_SIZE) * TGSI_QUAD_SIZE;
+      unsigned endFrag = startFrag + TGSI_QUAD_SIZE - 1;
+      for (unsigned qf = startFrag; qf <= endFrag; qf++) {
+        // assert(!thread->get_core()->get_thread(qf)->is_done());
+        thread->get_core()->get_thread(qf)->get_vector_operand_values(
+            src2, ptx_tex_regs[qf - startFrag], src_elems);
+        for (unsigned c = 0; c < 4; c++) {
+          fcoords[(qf - startFrag) * TGSI_QUAD_SIZE + c] =
+              ptx_tex_regs[qf - startFrag][c].f32;
         }
-        g_renderData.setTexCoords(uniqueThreadId, stream, fcoords);
-        for(unsigned qf=0; qf<TGSI_QUAD_SIZE; qf++)
-           delete [] ptx_tex_regs[qf];
-     }
+      }
+      g_renderData.setTexCoords(uniqueThreadId, stream, fcoords);
+      for (unsigned qf = 0; qf < TGSI_QUAD_SIZE; qf++)
+        delete[] ptx_tex_regs[qf];
+    }
 
-     int dim = -1;
-     switch(dimension){
-       case GEOM_MODIFIER_1D: dim =1; break;
-       case GEOM_MODIFIER_2D: dim =2; break;
-       case GEOM_MODIFIER_3D: dim =3; break;
-       default: assert(0 and "Unkown dimension modifier\n");
-     }
+    int dim = -1;
+    switch (dimension) {
+      case GEOM_MODIFIER_1D:
+        dim = 1;
+        break;
+      case GEOM_MODIFIER_2D:
+        dim = 2;
+        break;
+      case GEOM_MODIFIER_3D:
+        dim = 3;
+        break;
+      default:
+        assert(0 and "Unkown dimension modifier\n");
+    }
 
-     std::string unitNum = textureName.substr(textureName.find('_') + 1);
-     unitNum = unitNum.substr(unitNum.find('_') + 1);
-     int samplingUnit = std::stoi(unitNum, nullptr);
+    std::string unitNum = textureName.substr(textureName.find('_') + 1);
+    unitNum = unitNum.substr(unitNum.find('_') + 1);
+    int samplingUnit = std::stoi(unitNum, nullptr);
 
-     unsigned dst_elems = dst.get_vect_nelem();
-     float* fdst = new float[dst_elems]; //should only use elems
+    unsigned dst_elems = dst.get_vect_nelem();
+    float *fdst = new float[dst_elems];  // should only use elems
 
-     std::vector<uint64_t> texelAddrs;
-     texModifier modifier = texModifier::NONE;
-     if(isTxp) modifier = texModifier::PROJECTED;
-     else if(isTxb) modifier = texModifier::LOD_BIAS;
+    std::vector<uint64_t> texelAddrs;
+    texModifier modifier = texModifier::NONE;
+    if (isTxp)
+      modifier = texModifier::PROJECTED;
+    else if (isTxb)
+      modifier = texModifier::LOD_BIAS;
 
-     texelAddrs = g_renderData.fetchTexels(0, samplingUnit, dim, fcoords,
-           src_elems, fdst, dst_elems, uniqueThreadId, stream, modifier);
+    texelAddrs =
+        g_renderData.fetchTexels(0, samplingUnit, dim, fcoords, src_elems, fdst,
+                                 dst_elems, uniqueThreadId, stream, modifier);
 
-     uint64_t posX = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_UINT_POS, 0, -1, -1, stream).u64;
-     uint64_t posY = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_UINT_POS, 1, -1, -1, stream).u64;
+    uint64_t posX = g_renderData
+                        .getShaderData(uniqueThreadId, uniqueThreadId,
+                                       FRAG_UINT_POS, 0, -1, -1, stream)
+                        .u64;
+    uint64_t posY = g_renderData
+                        .getShaderData(uniqueThreadId, uniqueThreadId,
+                                       FRAG_UINT_POS, 1, -1, -1, stream)
+                        .u64;
 
+    dataX.f32 = fdst[0];
+    if (dst_elems > 0) dataY.f32 = fdst[1];
+    if (dst_elems > 1) dataZ.f32 = fdst[2];
+    if (dst_elems > 2) dataW.f32 = fdst[3];
 
-     dataX.f32 = fdst[0];
-     if(dst_elems > 0) dataY.f32 = fdst[1];
-     if(dst_elems > 1) dataZ.f32 = fdst[2];
-     if(dst_elems > 2) dataW.f32 = fdst[3];
-
-     if(del_fcoords)
-        delete[] fcoords;
-     delete [] fdst;
-     for(int ta = 0; ta < texelAddrs.size(); ta++){
-       thread->m_last_effective_address.set(texelAddrs[ta], ta);
-     }
-     thread->set_vector_operand_values(dst,dataX,dataY,dataZ,dataW);
-   }
-   thread->m_last_memory_space = tex_space;
+    if (del_fcoords) delete[] fcoords;
+    delete[] fdst;
+    for (int ta = 0; ta < texelAddrs.size(); ta++) {
+      thread->m_last_effective_address.set(texelAddrs[ta], ta);
+    }
+    thread->set_vector_operand_values(dst, dataX, dataY, dataZ, dataW);
+  }
+  thread->m_last_memory_space = tex_space;
 }
 
 
@@ -7454,96 +7487,120 @@ void stv_impl( const ptx_instruction *pI, ptx_thread_info *thread ) {
 
 void stp_impl( const ptx_instruction *pI, ptx_thread_info *thread ) 
 {
-   unsigned pixelSize = g_renderData.getPixelSizeSim();
-   //const operand_info &src1 = pI->src1(); //may be scalar or vector of regs
-   memory_space_t space = pI->get_space();
-   unsigned uniqueThreadId = thread->get_uid_in_kernel();
-   void* stream = thread->get_kernel_info()->get_stream();
-   uint64_t posX = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_UINT_POS, 0, -1, -1, stream).u64;
-   uint64_t posY = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_UINT_POS, 1, -1, -1, stream).u64;
-   addr_t addr = g_renderData.getFramebufferFragmentAddr(posX, posY, pixelSize);
+  unsigned pixelSize = g_renderData.getPixelSizeSim();
+  // const operand_info &src1 = pI->src1(); //may be scalar or vector of regs
+  memory_space_t space = pI->get_space();
+  unsigned uniqueThreadId = thread->get_uid_in_kernel();
+  void *stream = thread->get_kernel_info()->get_stream();
+  uint64_t posX = g_renderData
+                      .getShaderData(uniqueThreadId, uniqueThreadId,
+                                     FRAG_UINT_POS, 0, -1, -1, stream)
+                      .u64;
+  uint64_t posY = g_renderData
+                      .getShaderData(uniqueThreadId, uniqueThreadId,
+                                     FRAG_UINT_POS, 1, -1, -1, stream)
+                      .u64;
+  addr_t addr = g_renderData.getFramebufferFragmentAddr(posX, posY, pixelSize);
 
   //  thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_st(space);
-   thread->m_last_effective_address.set(addr);
-   thread->m_last_memory_space = space;
+  thread->m_last_effective_address.set(addr);
+  thread->m_last_memory_space = space;
 }
 
-
-void ztest_impl( const ptx_instruction *pI, ptx_thread_info *thread )
-{
-   const operand_info &dst = pI->dst();
-   unsigned type = pI->get_type();
-   ptx_reg_t data;
-   unsigned uniqueThreadId = thread->get_uid_in_kernel();
-   void* stream = thread->get_kernel_info()->get_stream();
-   addr_t addr = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_DEPTH_ADDR, 1, -1, -1, stream).u64;
+void ztest_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
+  const operand_info &dst = pI->dst();
+  unsigned type = pI->get_type();
+  ptx_reg_t data;
+  unsigned uniqueThreadId = thread->get_uid_in_kernel();
+  void *stream = thread->get_kernel_info()->get_stream();
+  addr_t addr = g_renderData
+                    .getShaderData(uniqueThreadId, uniqueThreadId,
+                                   FRAG_DEPTH_ADDR, 1, -1, -1, stream)
+                    .u64;
 
   //  thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_ld(z_space);
-   thread->m_last_effective_address.set(addr);
-   memory_space_t space = pI->get_space();
-   thread->m_last_memory_space = space; 
+  thread->m_last_effective_address.set(addr);
+  memory_space_t space = pI->get_space();
+  thread->m_last_memory_space = space;
 }
 
-void zwrite_impl( const ptx_instruction *pI, ptx_thread_info *thread )
-{
-   memory_space_t space = pI->get_space();
-   ptx_reg_t data;
-   unsigned uniqueThreadId = thread->get_uid_in_kernel();
-   void* stream = thread->get_kernel_info()->get_stream();
-   addr_t addr = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_DEPTH_ADDR, 1, -1, -1, stream).u64;
-   uint64_t posZ = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_UINT_POS, 2, -1, -1, stream).u64;
-   unsigned size = g_renderData.getDepthSize();
-   ptx_reg_t dst;
-   dst.u32 = 0;
-   dst.u16 = 0;
-   if(size == 2){
-      dst.u16 = (uint16_t) posZ;
-   } else if(size == 4){
-      dst.u32 = (uint32_t) posZ;
-   } else assert(0);
+void zwrite_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
+  memory_space_t space = pI->get_space();
+  ptx_reg_t data;
+  unsigned uniqueThreadId = thread->get_uid_in_kernel();
+  void *stream = thread->get_kernel_info()->get_stream();
+  addr_t addr = g_renderData
+                    .getShaderData(uniqueThreadId, uniqueThreadId,
+                                   FRAG_DEPTH_ADDR, 1, -1, -1, stream)
+                    .u64;
+  uint64_t posZ = g_renderData
+                      .getShaderData(uniqueThreadId, uniqueThreadId,
+                                     FRAG_UINT_POS, 2, -1, -1, stream)
+                      .u64;
+  unsigned size = g_renderData.getDepthSize();
+  ptx_reg_t dst;
+  dst.u32 = 0;
+  dst.u16 = 0;
+  if (size == 2) {
+    dst.u16 = (uint16_t)posZ;
+  } else if (size == 4) {
+    dst.u32 = (uint32_t)posZ;
+  } else
+    assert(0);
 
-   thread->set_builtin_dst(dst, size);
+  thread->set_builtin_dst(dst, size);
   //  thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_st(z_space);
-   // FIXME: This is just for counter in gem5. Assuming this is already recorded in the gpgpu-sim?
-   thread->m_last_effective_address.set(addr);
-   thread->m_last_memory_space = space;
+  // FIXME: This is just for counter in gem5. Assuming this is already recorded
+  // in the gpgpu-sim?
+  thread->m_last_effective_address.set(addr);
+  thread->m_last_memory_space = space;
 }
 
-void frc_impl( const ptx_instruction *pI, ptx_thread_info *thread ) 
-{ 
-   ptx_reg_t a, d;
-   const operand_info &dst  = pI->dst();
-   const operand_info &src1 = pI->src1();
+void frc_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
+  ptx_reg_t a, d;
+  const operand_info &dst = pI->dst();
+  const operand_info &src1 = pI->src1();
 
-   unsigned i_type = pI->get_type();
-   a = thread->get_operand_value(src1, dst, i_type, thread, 1);
+  unsigned i_type = pI->get_type();
+  a = thread->get_operand_value(src1, dst, i_type, thread, 1);
 
-
-   switch ( i_type ) {
-   case F32_TYPE: d.f32 = floor(a.f32); break;
-   case F64_TYPE: case FF64_TYPE: d.f64 = floor(a.f64); break;
-   default:
+  switch (i_type) {
+    case F32_TYPE:
+      d.f32 = floor(a.f32);
+      break;
+    case F64_TYPE:
+    case FF64_TYPE:
+      d.f64 = floor(a.f64);
+      break;
+    default:
       printf("Execution error: type mismatch with instruction\n");
       assert(0);
       break;
-   }
+  }
 
-   thread->set_operand_value(dst,d, i_type, thread, pI);
+  thread->set_operand_value(dst, d, i_type, thread, pI);
 }
 
 void blend_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
-    unsigned pixelSize = g_renderData.getPixelSizeSim();
-    unsigned uniqueThreadId = thread->get_uid_in_kernel();
-    void* stream = thread->get_kernel_info()->get_stream();
-    uint64_t posX = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_UINT_POS, 0, -1, -1, stream).u64;
-    uint64_t posY = g_renderData.getShaderData(uniqueThreadId, uniqueThreadId, FRAG_UINT_POS, 1, -1, -1, stream).u64;
-    addr_t addr = g_renderData.getFramebufferFragmentAddr(posX, posY, pixelSize);
-    memory_space_t space = pI->get_space();
+  unsigned pixelSize = g_renderData.getPixelSizeSim();
+  unsigned uniqueThreadId = thread->get_uid_in_kernel();
+  void *stream = thread->get_kernel_info()->get_stream();
+  uint64_t posX = g_renderData
+                      .getShaderData(uniqueThreadId, uniqueThreadId,
+                                     FRAG_UINT_POS, 0, -1, -1, stream)
+                      .u64;
+  uint64_t posY = g_renderData
+                      .getShaderData(uniqueThreadId, uniqueThreadId,
+                                     FRAG_UINT_POS, 1, -1, -1, stream)
+                      .u64;
+  addr_t addr = g_renderData.getFramebufferFragmentAddr(posX, posY, pixelSize);
+  memory_space_t space = pI->get_space();
 
-    // thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_ld(space);
-    // FIXME: This is just for counter in gem5. Assuming this is already recorded in the gpgpu-sim?
-    thread->m_last_effective_address.set(addr);
-    thread->m_last_memory_space = space; 
+  // thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_ld(space);
+  // FIXME: This is just for counter in gem5. Assuming this is already recorded
+  // in the gpgpu-sim?
+  thread->m_last_effective_address.set(addr);
+  thread->m_last_memory_space = space;
 }
 
 void printf_impl( const ptx_instruction *pI, ptx_thread_info *thread ) 
