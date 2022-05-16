@@ -2047,13 +2047,12 @@ void ptx_thread_info::ptx_exec_inst(warp_inst_t &inst, unsigned lane_id) {
       fflush(stdout);
     }
 
-    addr_t insn_memaddr = 0xFEEBDAED;
     memory_space_t insn_space = undefined_space;
     _memory_op_t insn_memory_op = no_memory_op;
     unsigned insn_data_size = 0;
     if ((pI->has_memory_read() || pI->has_memory_write())) {
       if (!((inst_opcode == MMA_LD_OP || inst_opcode == MMA_ST_OP))) {
-        insn_memaddr = last_eaddr();
+        inst.set_addr(lane_id, last_eaddrs(), last_eaddrs_count());
         insn_space = last_space();
         unsigned to_type = pI->get_type();
         insn_data_size = datatype2size(to_type);
@@ -2068,7 +2067,7 @@ void ptx_thread_info::ptx_exec_inst(warp_inst_t &inst, unsigned lane_id) {
     }
 
     if (pI->get_opcode() == ATOM_OP) {
-      insn_memaddr = last_eaddr();
+      inst.set_addr(lane_id, last_eaddrs(), last_eaddrs_count());
       insn_space = last_space();
       inst.add_callback(lane_id, last_callback().function,
                         last_callback().instruction, this, true /*atomic*/);
@@ -2077,7 +2076,7 @@ void ptx_thread_info::ptx_exec_inst(warp_inst_t &inst, unsigned lane_id) {
     }
 
     if (pI->get_opcode() == TEX_OP) {
-      inst.set_addr(lane_id, last_eaddr());
+      inst.set_addr(lane_id, last_eaddrs(), last_eaddrs_count());
       assert(inst.space == last_space());
       insn_data_size = get_tex_datasize(
           pI,
@@ -2165,7 +2164,6 @@ void ptx_thread_info::ptx_exec_inst(warp_inst_t &inst, unsigned lane_id) {
     if (!skip) {
       if (!((inst_opcode == MMA_LD_OP || inst_opcode == MMA_ST_OP))) {
         inst.space = insn_space;
-        inst.set_addr(lane_id, insn_memaddr);
         inst.data_size = insn_data_size;  // simpleAtomicIntrinsics
         assert(inst.memory_op == insn_memory_op);
       }
