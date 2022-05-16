@@ -7508,7 +7508,9 @@ void stp_impl( const ptx_instruction *pI, ptx_thread_info *thread )
                       .u64;
   addr_t addr = g_renderData.getFramebufferFragmentAddr(posX, posY, pixelSize);
 
-  //  thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_st(space);
+  decode_space(space, thread, dst, mem, addr);
+  mem->write(addr, 4, &data.u32, thread, pI);
+  
   thread->m_last_effective_address.set(addr);
   thread->m_last_memory_space = space;
 }
