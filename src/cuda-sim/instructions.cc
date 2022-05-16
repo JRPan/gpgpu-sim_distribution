@@ -7487,6 +7487,12 @@ void stv_impl( const ptx_instruction *pI, ptx_thread_info *thread ) {
 
 void stp_impl( const ptx_instruction *pI, ptx_thread_info *thread ) 
 {
+  const operand_info &dst = pI->dst();
+  const operand_info &src1 = pI->src1();
+  unsigned type = pI->get_type();
+  ptx_reg_t data = thread->get_operand_value(src1, dst, type, thread, 1);
+  memory_space *mem = NULL;
+
   unsigned pixelSize = g_renderData.getPixelSizeSim();
   // const operand_info &src1 = pI->src1(); //may be scalar or vector of regs
   memory_space_t space = pI->get_space();
