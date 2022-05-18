@@ -2244,18 +2244,6 @@ bool ldst_unit::memory_cycle(warp_inst_t &inst,
       bypassL1D = true;
   }
 
-  if(inst.space.is_vert() && inst.is_store()){
-    unsigned kwip = (m_core->get_thread(inst.warp_id()*inst.warp_size())->get_uid_in_kernel())/MAX_WARP_SIZE;
-    m_core->can_vert_write(kwip, inst);
-    m_core->signal_attrib_done(kwip, inst.active_count());
-    // just mark as ready
-
-    // if(!shaderImpl->can_vert_write(kwip, inst))
-          // return true;
-       //vertex ouput uses trivial coalescing
-      //  assert(inst.is_store());
-  }
-
   if (bypassL1D) {
     // bypass L1 cache
     unsigned control_size =
@@ -2292,6 +2280,16 @@ bool ldst_unit::memory_cycle(warp_inst_t &inst,
       access_type = (iswrite) ? L_MEM_ST : L_MEM_LD;
     else
       access_type = (iswrite) ? G_MEM_ST : G_MEM_LD;
+  } else if (inst.space.is_vert() && inst.is_store()) {
+    unsigned kwip = (m_core->get_thread(inst.warp_id()*inst.warp_size())->get_uid_in_kernel())/MAX_WARP_SIZE;
+    m_core->can_vert_write(kwip, inst);
+    m_core->signal_attrib_done(kwip, inst.active_count());
+    // just mark as ready
+
+    // if(!shaderImpl->can_vert_write(kwip, inst))
+          // return true;
+       //vertex ouput uses trivial coalescing
+      //  assert(inst.is_store());
   }
   return inst.accessq_empty();
 }
