@@ -574,6 +574,7 @@ class renderData_t {
     assert(m_sShading_info.vertOutputAttribs > 0);
     return m_sShading_info.vertOutputAttribs;
   }
+  unsigned getPrimSize() {return drawPrimitives.size();}
   inline unsigned getVertThreadsCount();
   inline unsigned getVertsCount();
   bool gpgpusim_active();
@@ -661,8 +662,12 @@ class renderData_t {
 
   bool isBusy() {
     // if framebuffer is allocated then some rendering is going on
-    return (m_deviceData != NULL);
+    return m_busy;
   }
+
+  bool setBusy() { m_busy = true; }
+
+  bool unsetBusy() { m_busy = false; }
 
   void updateMachine(struct tgsi_exec_machine* tmachine) {
     m_tmachine = tmachine;
@@ -767,6 +772,7 @@ class renderData_t {
 
 
  private:
+  bool m_busy;
   std::string m_vPTXPrfx;
   std::string m_fPTXPrfx;
   std::string m_fPtxInfoPrfx;

@@ -17,7 +17,7 @@ extern "C" bool gpgpusimSkipCpFrames() {
 }
 
 extern "C" void gpgpusimEndOfFrame() {
-    g_renderData.endOfFrame();
+  g_renderData.endOfFrame();
 }
 
 extern "C" void gpgpusimInitializeCurrentDraw(struct tgsi_exec_machine* tmachine, void* sp, void* mapped_indices) {
@@ -122,6 +122,10 @@ extern "C" void gpgpusimAddTexelFetch(int x, int y, int level){
 
 extern "C" bool gpgpusimIsBusy(){
   return g_renderData.isBusy();
+}
+
+extern "C" void gpgpusimEndFragmentShading() {
+  g_renderData.endFragmentShading();
 }
 
 

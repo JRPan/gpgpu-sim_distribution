@@ -103,9 +103,6 @@ void graphics_simt_pipeline::run_fetch_prim_attribs() {
     m_curr_prim_counter++;
     // signal that this prim is done for this cluster
     g_renderData.launchTCTile(m_cluster_id, NULL, 1);
-    // FIXME:
-   //  } else if(m_cluster->get_gpu()->gem5CudaGPU->fetchPrimAttribs(
-   //              m_cluster_id, m_curr_prim_counter)){
   } else {
     primitiveFragmentsData_t* pd = g_renderData.getPrimData(m_curr_prim_counter);
     m_cluster->get_gpu()

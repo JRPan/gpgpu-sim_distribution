@@ -224,7 +224,7 @@ void primitiveFragmentsData_t::sortFragmentsInTiles(
     const unsigned tilesCount, const unsigned blockH, const unsigned blockW,
     const RasterDirection rasterDir, unsigned tcH, unsigned tcW,
     unsigned tcBlockDim, unsigned clusterCount) {
-  assert(m_rasterTiles.size() == 0);
+  // assert(m_rasterTiles.size() == 0);
   assert(rasterDir == RasterDirection::HorizontalRaster);
 
   // checking if a suitable block size is provided
@@ -245,7 +245,7 @@ void primitiveFragmentsData_t::sortFragmentsInTiles(
       frameHeight += blockH;
   }*/
 
-  printf("Sorting %d framgents in %d tiles \n", m_fragments.size(), tilesCount);
+  // printf("Sorting %d framgents in %d tiles \n", m_fragments.size(), tilesCount);
 
   int minX, maxX, minY, maxY;
   minX = minY = -1;
@@ -342,6 +342,7 @@ void primitiveFragmentsData_t::sortFragmentsInTiles(
 }
 
 renderData_t::renderData_t() : m_hizBuff(this) {
+  m_busy = false;
   m_deviceData = NULL;
   m_currentFrame = 0;
   m_startFrame = -1;
@@ -589,8 +590,6 @@ void renderData_t::addVertex(struct tgsi_exec_machine* mach, int pos) {
 }
 
 void renderData_t::addFragment(fragmentData_t fragmentData) {
-  printf("adding a fragment to primitive %d, fragments count=%d\n",
-         drawPrimitives.size() - 1, drawPrimitives.back().size());
   // printf( "adding a fragment to primitive %d, fragments count=%d\n",
   // drawPrimitives.size()-1, drawPrimitives.back().size());
   drawPrimitives.back().addFragment(fragmentData);
@@ -612,6 +611,7 @@ void renderData_t::sortFragmentsInRasterOrder(unsigned tileH, unsigned tileW,
 }
 
 void renderData_t::endDrawCall() {
+  if (!m_deviceData) return;
   printf("ending drawcall tick = %ld, NOT WORKING\n", 0);
   printf("endDrawCall: start\n");
   gpgpu_context *ctx = GPGPU_Context();
@@ -620,25 +620,23 @@ void renderData_t::endDrawCall() {
   // g_totalTicks+= ticks;
   // printf("totalTicks = %ld, frags = %ld\n", g_totalTicks, g_totalFrags);
   // CudaGPU* cudaGPU = CudaGPU::getCudaGPU(g_active_device);
-  context->get_device()->get_gpgpu()->print_stats();
-  context->get_device()->get_gpgpu()->update_stats();
+  // context->get_device()->get_gpgpu()->print_stats();
+  // context->get_device()->get_gpgpu()->update_stats();
   putDataOnColorBuffer();
   if (isDepthTestEnabled()) putDataOnDepthBuffer();
-  delete[] lastFatCubin->ident;
-  delete[] lastFatCubin->ptx[0].gpuProfileName;
-  delete[] lastFatCubin->ptx[0].ptx;
-  delete[] lastFatCubin->ptx;
-  delete lastFatCubin;
+  // delete[] lastFatCubin->ident;
+  // delete[] lastFatCubin->ptx[0].gpuProfileName;
+  // delete[] lastFatCubin->ptx[0].ptx;
+  // delete[] lastFatCubin->ptx;
+  // delete lastFatCubin;
   // TODO: looks like no cudafree is needed
-   if(m_sShading_info.allocAddr) graphicsFree(m_sShading_info.allocAddr);
-   if(m_sShading_info.deviceVertsInputAttribs)
-      graphicsFree(m_sShading_info.deviceVertsInputAttribs);
-   if(m_sShading_info.deviceVertsOutputAttribs)
-      graphicsFree(m_sShading_info.deviceVertsOutputAttribs);
-   if(m_sShading_info.vertCodeAddr)
-   graphicsFree(m_sShading_info.vertCodeAddr);
-   if(m_sShading_info.fragCodeAddr)
-   graphicsFree(m_sShading_info.fragCodeAddr); graphicsFree(m_deviceData);
+  if (m_sShading_info.allocAddr) graphicsFree(m_sShading_info.allocAddr);
+  if (m_sShading_info.deviceVertsInputAttribs)
+    graphicsFree(m_sShading_info.deviceVertsInputAttribs);
+  if (m_sShading_info.deviceVertsOutputAttribs)
+    graphicsFree(m_sShading_info.deviceVertsOutputAttribs);
+  if (m_sShading_info.vertCodeAddr) graphicsFree(m_sShading_info.vertCodeAddr);
+  if (m_sShading_info.fragCodeAddr) graphicsFree(m_sShading_info.fragCodeAddr);
 
   // free textures
   // for (int tex = 0; tex < m_textureInfo.size(); tex++) {
@@ -1213,6 +1211,7 @@ void renderData_t::initializeCurrentDraw(struct tgsi_exec_machine* tmachine,
 
   delete[] m_currentRenderBufferBytes;
   m_currentRenderBufferBytes = NULL;
+  setBusy();
 
   if (m_depthBuffer != NULL) {
     writeDrawBuffer("pre_depth", m_depthBuffer, m_depthBufferSize,
@@ -1804,7 +1803,7 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
     for (unsigned att = 0; att < m_sShading_info.vertInputAttribs; att++) {
       for (unsigned vert = 0; vert < m_sShading_info.vertexData.size();
            vert++) {
-        if (vert % 1000 == 0) {
+        if (vert % 10000 == 0) {
           printf("copying vertex - %u/%u\n",vert,m_sShading_info.vertexData.size());
         }
         byte* addr = m_sShading_info.deviceVertsInputAttribs +
@@ -2023,7 +2022,7 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
       }
       if (m_sShading_info.completed_threads_verts % 10000 == 0)
         printf("completed threads = %d out of %d\n",
-               m_sShading_info.completed_threads_frags,
+               m_sShading_info.completed_threads_verts,
                m_sShading_info.launched_threads_verts);
     } else if (stream == m_sShading_info.cudaStreamFrag) {
       m_sShading_info.completed_threads_frags++;
@@ -2068,9 +2067,10 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
     m_sShading_info.pending_kernels--;
     if (m_flagEndFragmentShader && m_flagEndVertexShader &&
         (m_sShading_info.pending_kernels == 0)) {
-      endFragmentShading();
+      // endFragmentShading();
       m_flagEndVertexShader = false;
       m_flagEndFragmentShader = false;
+      unsetBusy();
     }
   }
 
@@ -2223,13 +2223,14 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
 
       if (m_sShading_info.sent_simt_prims.find(donePrim) ==
           m_sShading_info.sent_simt_prims.end()) {
-        assert(0);
+        // assert(0);
+        printf("WARNING: Prim not found - %d\n", donePrim);
       }
-      assert(m_sShading_info.sent_simt_prims.find(donePrim) !=
-             m_sShading_info.sent_simt_prims.end());
+      // assert(m_sShading_info.sent_simt_prims.find(donePrim) !=
+      //        m_sShading_info.sent_simt_prims.end());
       m_sShading_info.sent_simt_prims.erase(donePrim);
-      printf("received a prim done, sent_simt_prims = %d\n",
-             m_sShading_info.sent_simt_prims.size());
+      printf("received a prim done, sent_simt_prims = %d, remaining = %d\n",
+             donePrim, m_sShading_info.sent_simt_prims.size());
 
       if (m_sShading_info.sent_simt_prims.size() == 0) {
         assert(m_sShading_info.fragKernel != NULL);
@@ -2245,7 +2246,7 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
     }
 
     assert(tcTile->size() > 0);
-    printf("launching a TC tile with %d fragments\n", tcTile->size());
+    // printf("launching a TC tile with %d fragments\n", tcTile->size());
     unsigned threadsPerBlock = m_frag_wg_size;
     unsigned numberOfBlocks =
         (tcTile->size() + threadsPerBlock - 1) / threadsPerBlock;

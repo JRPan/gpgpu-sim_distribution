@@ -1913,7 +1913,12 @@ void shader_core_ctx::add_prims() {
     if (m_vert_warps.front().warpTids.empty()) return;
     unsigned primId = g_renderData.getPrimId(&m_vert_warps.front().warpTids,
                                              m_vert_warps.front().vert_count);
-    if (m_vert_warps.front().warpTids.empty()) {
+    if (primId > g_renderData.getPrimSize()) {
+      printf("WARNING: primitive ID %u overflow\nPop from the pipeline\n",primId);
+      m_vert_warps.pop_front();
+      return;
+    }
+    if (m_vert_warps.front().warpTids.empty() || primId == g_renderData.getPrimSize()) {
       // if last prim in this warp mark it as the last one in
       // the batch
       m_prim_pipe.push_back(primPipe_t(primId, m_prim_delay, true));
