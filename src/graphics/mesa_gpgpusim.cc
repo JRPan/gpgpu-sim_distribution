@@ -736,7 +736,10 @@ bool renderData_t::useInShaderBlending() const { return m_inShaderBlending; }
 void renderData_t::checkExitCond() {
   if (((m_currentFrame == m_endFrame) and (m_drawcall_num > m_endDrawcall)) or
       (m_currentFrame > m_endFrame)) {
-        printf("end gpgpu-sim here\n");
+    gpgpu_context *ctx = GPGPU_Context();
+    // CUctx_st *context = GPGPUSim_Context(ctx);
+    ctx->exit_simulation();
+    exit(0);
     // g_gpuMutex.lock();
     // exitSimLoop("gem5 exit, end of graphics simulation", 0, curTick(), 0, true);
     // g_gpuMutex.unlock();
