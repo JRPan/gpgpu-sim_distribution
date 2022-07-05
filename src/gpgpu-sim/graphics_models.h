@@ -180,8 +180,8 @@ class tc_engine_t {
          tc_tile->skipDepthTest = m_status.skip_depth_test;
          assert(m_pending_tiles.find(std::make_pair(tc_tile->x,tc_tile->y))
                == m_pending_tiles.end());
-         m_pending_tiles.insert(
-               std::make_pair(std::make_pair(tc_tile->x, tc_tile->y), tc_tile));
+         // m_pending_tiles.insert(
+         //       std::make_pair(std::make_pair(tc_tile->x, tc_tile->y), tc_tile));
          g_renderData.launchTCTile(m_cluster_id, tc_tile, -1);
          //g_renderData.launchTCTile(m_cluster_id, tc_tile, m_status.done_prims);
          //reset if no tiles left
