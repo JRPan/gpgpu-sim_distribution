@@ -1823,6 +1823,7 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
     CUctx_st *context = GPGPUSim_Context(ctx);
     gpgpu_sim *m_gpgpu_sim = context->get_device()->get_gpgpu();
     // pthread_mutex_lock(&(ctx->the_gpgpusim->g_sim_lock));
+    // m_vertex_copy_done = false;
     registerPtxCode();
     allocateVertBuffers();
 
@@ -1837,7 +1838,7 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
     m_coresPerCluster = m_gpgpu_sim->get_config().num_cores_per_cluster();
     assert(m_sShading_info.fragCodeAddr == NULL);
 
-    for (int pnum = 0; pnum < m_numClusters * drawPrimitives.size(); pnum++) {
+    for (int pnum = 0; pnum < 1 * drawPrimitives.size(); pnum++) {
       if (getPrimVertices(pnum).back() < m_sShading_info.vertexData.size())
         m_sShading_info.sent_simt_prims.insert(pnum);
     }
@@ -2073,6 +2074,7 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
       // endFragmentShading();
       m_flagEndVertexShader = false;
       m_flagEndFragmentShader = false;
+      m_vertex_copy_done = false;
       unsetBusy();
     }
   }
