@@ -195,6 +195,7 @@ class cuda_runtime_api {
   // member function list
   void cuobjdumpInit();
   void extract_code_using_cuobjdump();
+  void extract_code_using_cuobjdump_from_file(std::string app_binary);
   void extract_ptx_files_using_cuobjdump(CUctx_st *context);
   std::list<cuobjdumpSection *> pruneSectionList(CUctx_st *context);
   std::list<cuobjdumpSection *> mergeMatchingSections(std::string identifier);

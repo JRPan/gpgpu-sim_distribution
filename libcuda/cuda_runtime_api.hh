@@ -43,8 +43,11 @@ void cudaRegisterFunctionInternal(void **fatCubinHandle, const char *hostFun,
                                   int thread_limit, uint3 *tid, uint3 *bid,
                                   dim3 *bDim, dim3 *gDim,
                                   gpgpu_context *gpgpu_ctx = NULL);
+cudaError_t cudaLaunchInternal(const char *hostFun,
+                               gpgpu_context *gpgpu_ctx = NULL);
+void cuobjdump_from_binary(std::string filename);
 // TODO: This is not weird at all. rename this
 void **weirdRegisterFuntion(void *fatCubin, const char *hostFun,
                             char *deviceFun, const char *ptxfile,
-                            const char *ptxinfo,
+                            const char *ptxinfo, unsigned version,
                             gpgpu_context *gpgpu_ctx = NULL);
