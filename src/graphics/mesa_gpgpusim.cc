@@ -1793,6 +1793,7 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
                           TGSI_NUM_CHANNELS * sizeof(GLfloat);
     graphicsMalloc((void**)&m_sShading_info.deviceVertsInputAttribs,
                    bufferSize);
+    byte *buffer = (byte *) malloc(bufferSize);
 
     bufferSize = m_sShading_info.vertOutputAttribs *
                  m_sShading_info.vertexData.size() * TGSI_NUM_CHANNELS *
@@ -1806,16 +1807,17 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
     for (unsigned att = 0; att < m_sShading_info.vertInputAttribs; att++) {
       for (unsigned vert = 0; vert < m_sShading_info.vertexData.size();
            vert++) {
-        if (vert % 10000 == 0) {
-          printf("copying vertex - %u/%u\n",vert,m_sShading_info.vertexData.size());
-        }
-        byte* addr = m_sShading_info.deviceVertsInputAttribs +
-                     att * attribStride + vert * vertStride;
-        modeMemcpy(addr,
-                   (byte*)m_sShading_info.vertexData[vert].inputs[att].channels,
-                   sizeof(GLfloat) * TGSI_NUM_CHANNELS, cudaMemcpyHostToDevice);
+        byte* addr = buffer + att * attribStride + vert * vertStride;
+        std::memcpy(
+            addr, (byte*)m_sShading_info.vertexData[vert].inputs[att].channels,
+            sizeof(GLfloat) * TGSI_NUM_CHANNELS);
       }
     }
+    modeMemcpy(m_sShading_info.deviceVertsInputAttribs, buffer, bufferSize,
+               cudaMemcpyHostToDevice);
+    free(buffer);
+    printf("copying vertex done - total %u\n",
+           m_sShading_info.vertexData.size());
   }
 
   unsigned int renderData_t::startShading() {
