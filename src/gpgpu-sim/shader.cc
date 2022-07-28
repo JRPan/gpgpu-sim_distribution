@@ -1913,7 +1913,7 @@ void shader_core_ctx::add_prims() {
     if (m_vert_warps.front().warpTids.empty()) return;
     unsigned primId = g_renderData.getPrimId(&m_vert_warps.front().warpTids,
                                              m_vert_warps.front().vert_count);
-    if (primId > g_renderData.getPrimSize()) {
+    if (primId >= g_renderData.getPrimSize()) {
       printf("WARNING: primitive ID %u overflow\nPop from the pipeline\n",primId);
       m_vert_warps.pop_front();
       return;
