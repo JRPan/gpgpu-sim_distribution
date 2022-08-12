@@ -2232,7 +2232,8 @@ bool ldst_unit::memory_cycle(warp_inst_t &inst,
                              mem_stage_access_type &access_type) {
   if (inst.empty() || ((inst.space.get_type() != global_space) &&
                        (inst.space.get_type() != local_space) &&
-                       (inst.space.get_type() != param_space_local)))
+                       (inst.space.get_type() != param_space_local) &&
+                       (inst.space.get_type() != tex_space)))
     return true;
   if (inst.active_count() == 0) return true;
   if (inst.accessq_empty()) return true;
@@ -2797,8 +2798,8 @@ void ldst_unit::cycle() {
   if (!m_response_fifo.empty()) {
     mem_fetch *mf = m_response_fifo.front();
     if (mf->get_access_type() == TEXTURE_ACC_R) {
-      if (m_L1T->fill_port_free()) {
-        m_L1T->fill(mf, m_core->get_gpu()->gpu_sim_cycle +
+      if (m_L1D->fill_port_free()) {
+        m_L1D->fill(mf, m_core->get_gpu()->gpu_sim_cycle +
                             m_core->get_gpu()->gpu_tot_sim_cycle);
         m_response_fifo.pop_front();
       }
@@ -2848,7 +2849,7 @@ void ldst_unit::cycle() {
     }
   }
 
-  m_L1T->cycle();
+  // m_L1T->cycle();
   m_L1C->cycle();
   if (m_L1D) {
     m_L1D->cycle();
@@ -2861,7 +2862,7 @@ void ldst_unit::cycle() {
   bool done = true;
   done &= shared_cycle(pipe_reg, rc_fail, type);
   done &= constant_cycle(pipe_reg, rc_fail, type);
-  done &= texture_cycle(pipe_reg, rc_fail, type);
+  // done &= texture_cycle(pipe_reg, rc_fail, type);
   done &= memory_cycle(pipe_reg, rc_fail, type);
   m_mem_rc = rc_fail;
 

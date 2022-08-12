@@ -789,6 +789,7 @@ void ptx_instruction::set_opcode_and_latency() {
     case TEX_OP:
       op = LOAD_OP;
       mem_op = TEX;
+      cache_op = CACHE_ALL;
       break;
     case ATOM_OP:
       op = LOAD_OP;

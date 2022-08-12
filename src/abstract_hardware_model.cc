@@ -433,14 +433,15 @@ void warp_inst_t::generate_mem_accesses() {
       break;
     }
 
-    case tex_space:
-      cache_block_size = m_config->gpgpu_cache_texl1_linesize;
-      break;
+    // case tex_space:
+    //   cache_block_size = m_config->gpgpu_cache_texl1_linesize;
+    //   break;
     case const_space:
     case param_space_kernel:
       cache_block_size = m_config->gpgpu_cache_constl1_linesize;
       break;
 
+    case tex_space:
     case global_space:
     case local_space:
     case param_space_local:
