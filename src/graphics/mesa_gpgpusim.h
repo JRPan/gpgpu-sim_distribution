@@ -358,6 +358,7 @@ struct stage_shading_info_t {
   byte* deviceVertsOutputAttribs;
   cudaStream_t cudaStreamVert;
   cudaStream_t cudaStreamFrag;
+  cudaStream_t cudaStreamCompute;
   void* allocAddr;
   void* vertCodeAddr;
   void* fragCodeAddr;
@@ -585,7 +586,7 @@ class renderData_t {
   bool isVertWarpDone(unsigned warpId, unsigned vertCount);
   unsigned vShaderAttribWrites() const;
   void allocateVertBuffers();
-  unsigned int startShading();
+  void startShading();
   void endFragmentShading();
   void setVertexAttribsCount(struct tgsi_exec_machine* mach,
                              int inputAttribsCount, int outputAttribsCount);

@@ -266,6 +266,7 @@ bool stream_manager::check_finished_kernel() {
 
 bool stream_manager::register_finished_kernel(unsigned grid_uid) {
   // called by gpu simulation thread
+  gpgpu_context *ctx = GPGPU_Context();
   if (grid_uid > 0) {
     CUstream_st *stream = m_grid_id_to_stream[grid_uid];
     kernel_info_t *kernel = stream->front().get_kernel();
@@ -289,9 +290,17 @@ bool stream_manager::register_finished_kernel(unsigned grid_uid) {
       stream->record_next_done();
       m_grid_id_to_stream.erase(grid_uid);
       kernel->notify_parent_finished();
-      if(kernel->isGraphicsKernel()) {
-       g_renderData.checkEndOfShader();
-    }
+      if (kernel->isGraphicsKernel()) {
+        g_renderData.checkEndOfShader();
+      }
+      sleep(0.5);
+      fflush(stdout);
+      printf("start printing stats - shader %s\n",kernel->name().c_str());
+      ctx->the_gpgpusim->g_the_gpu->print_stats();
+      ctx->the_gpgpusim->g_the_gpu->update_stats();
+      ctx->print_simulation_time();
+      printf("end printing stats - shader %s\n",kernel->name().c_str());
+      fflush(stdout);
       delete kernel;
       return true;
     }
