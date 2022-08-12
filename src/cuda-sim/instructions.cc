@@ -6816,7 +6816,6 @@ void tex_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
   fflush(stdout);
   ptx_reg_t *ptx_tex_regs[TGSI_QUAD_SIZE];
   unsigned src_elems = src2.get_vect_nelem();
-  //  thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_ld(tex_space);
   // registers to save return data
   ptx_reg_t dataX, dataY, dataZ, dataW;
 

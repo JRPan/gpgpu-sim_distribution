@@ -1914,7 +1914,7 @@ void shader_core_ctx::add_prims() {
     unsigned primId = g_renderData.getPrimId(&m_vert_warps.front().warpTids,
                                              m_vert_warps.front().vert_count);
     if (primId >= g_renderData.getPrimSize()) {
-      printf("WARNING: primitive ID %u overflow\nPop from the pipeline\n",primId);
+      // printf("WARNING: primitive ID %u overflow\nPop from the pipeline\n",primId);
       m_vert_warps.pop_front();
       return;
     }
@@ -4501,7 +4501,8 @@ unsigned simt_core_cluster::issue_block2core() {
     // Jin: fetch kernel according to concurrent kernel setting
     if (m_config->gpgpu_concurrent_kernel_sm) {  // concurrent kernel on sm
       // always select latest issued kernel
-      kernel_info_t *k = m_gpu->select_kernel();
+      // kernel_info_t *k = m_gpu->select_kernel();
+      kernel_info_t *k = m_gpu->select_kernel(m_cluster_id);
       kernel = k;
     } else {
       // first select core kernel, if no more cta, get a new kernel
@@ -4528,14 +4529,6 @@ unsigned simt_core_cluster::issue_block2core() {
       break;
     }
   }
-  // for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; i++) {
-  //   kernel_info_t *kernel = m_core[i]->get_kernel();
-  //   if (kernel && kernel->no_more_ctas_to_run() && kernel->isDrawCallDone() &&
-  //       (m_core[i]->get_n_active_cta() == 0) &&
-  //       !m_core[i]->kernel_finish_issued()) {
-  //     m_core[i]->start_kernel_finish();
-  //   }
-  // }
   return num_blocks_issued;
 }
 

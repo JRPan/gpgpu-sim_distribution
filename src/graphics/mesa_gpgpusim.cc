@@ -612,7 +612,6 @@ void renderData_t::sortFragmentsInRasterOrder(unsigned tileH, unsigned tileW,
 
 void renderData_t::endDrawCall() {
   if (!m_deviceData) return;
-  printf("ending drawcall tick = %ld, NOT WORKING\n", 0);
   printf("endDrawCall: start\n");
   gpgpu_context *ctx = GPGPU_Context();
   CUctx_st *context = GPGPUSim_Context(ctx);
@@ -762,14 +761,14 @@ bool renderData_t::GPGPUSimActiveFrame() {
 
 bool renderData_t::GPGPUSimSimulationActive() {
   bool isFrame = GPGPUSimActiveFrame();
-  bool afterStartDrawcall = ((m_currentFrame == m_startFrame) and
-                             (m_drawcall_num >= m_startDrawcall)) or
+  bool afterStartDrawcall = ((m_currentFrame == m_startFrame) &&
+                             (m_drawcall_num >= m_startDrawcall)) ||
                             (m_currentFrame > m_startFrame);
   bool beforeEndDrawcall =
-      ((m_currentFrame == m_endFrame) and (m_drawcall_num <= m_endDrawcall)) or
+      ((m_currentFrame == m_endFrame) && (m_drawcall_num <= m_endDrawcall)) ||
       (m_currentFrame < m_endFrame);
 
-  return (isFrame and afterStartDrawcall and beforeEndDrawcall);
+  return (isFrame && afterStartDrawcall && beforeEndDrawcall);
 }
 
 bool renderData_t::GPGPUSimSkipCpFrames() { return m_skipCpFrames; }
@@ -1122,22 +1121,11 @@ void renderData_t::registerPtxCode() {
   // void** fatCubinHandle = graphicsRegisterFatBinary(cudaFatBin);
   weirdRegisterFuntion(cudaFatBin, (char*)getCurrentShaderId(VERTEX_PROGRAM),
                        (char*)getCurrentShaderName(VERTEX_PROGRAM).c_str(),
-                       (char*)vertexPTXFile.c_str(), (char*)vertexInfoFileName.c_str());
+                       (char*)vertexPTXFile.c_str(), (char*)vertexInfoFileName.c_str(), 0);
 
   weirdRegisterFuntion(cudaFatBin, (char*)getCurrentShaderId(FRAGMENT_PROGRAM),
                        (char*)getCurrentShaderName(FRAGMENT_PROGRAM).c_str(),
-                       (char*)fragmentPTXFile.c_str(), (char*)fragInfoFileName.c_str());
-
-  // graphicsRegisterFunction(fatCubinHandle, getCurrentShaderId(VERTEX_PROGRAM),
-  //                          (char*)getCurrentShaderName(VERTEX_PROGRAM).c_str(),
-  //                          getCurrentShaderName(VERTEX_PROGRAM).c_str(), -1,
-  //                          (uint3*)0, (uint3*)0, (dim3*)0, (dim3*)0, (int*)0);
-
-  // graphicsRegisterFunction(
-  //     fatCubinHandle, getCurrentShaderId(FRAGMENT_PROGRAM),
-  //     (char*)getCurrentShaderName(FRAGMENT_PROGRAM).c_str(),
-  //     getCurrentShaderName(FRAGMENT_PROGRAM).c_str(), -1, (uint3*)0, (uint3*)0,
-  //     (dim3*)0, (dim3*)0, (int*)0);
+                       (char*)fragmentPTXFile.c_str(), (char*)fragInfoFileName.c_str(), 0);
 }
 
 void renderData_t::initializeCurrentDraw(struct tgsi_exec_machine* tmachine,
@@ -1820,7 +1808,7 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
            m_sShading_info.vertexData.size());
   }
 
-  unsigned int renderData_t::startShading() {
+  void renderData_t::startShading() {
     gpgpu_context *ctx = GPGPU_Context();
     CUctx_st *context = GPGPUSim_Context(ctx);
     gpgpu_sim *m_gpgpu_sim = context->get_device()->get_gpgpu();
@@ -1834,12 +1822,19 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
     m_sShading_info.completed_threads_frags = 0;
     m_sShading_info.launched_threads_frags = 0;
 
-    // CudaGPU* cudaGPU = CudaGPU::getCudaGPU(g_active_device);
-    // gpgpu_sim* gpu = cudaGPU->getTheGPU();
     m_numClusters = m_gpgpu_sim->get_config().num_cluster();
     m_coresPerCluster = m_gpgpu_sim->get_config().num_cores_per_cluster();
     assert(m_sShading_info.fragCodeAddr == NULL);
 
+    if (drawPrimitives.size() == 0) {
+      printf("no primitive in this drawcall - skipping\n");
+      // create dummy stream, which will be destroyed in endDrawcall()
+      graphicsStreamCreate(&m_sShading_info.cudaStreamVert);
+      graphicsStreamCreate(&m_sShading_info.cudaStreamFrag);
+      endDrawCall();
+      unsetBusy();
+      return;
+    }
     for (int pnum = 0; pnum < 1 * drawPrimitives.size(); pnum++) {
       if (getPrimVertices(pnum).back() < m_sShading_info.vertexData.size())
         m_sShading_info.sent_simt_prims.insert(pnum);
@@ -1850,31 +1845,11 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
       simt_clusters[clusterId]->getGraphicsPipeline()->reset_prim_counter();
     }
 
-    m_vertex_copy_done = true;
+    // launch compute kernels here
+    // runbfs();
+
     gpgpusim_cycle();
-    // bool active = false;
-    // bool sim_cycles = false;
-    // do {
-    //   if (!m_gpgpu_sim->active())
-    //     break;
-
-    //   // performance simulation
-    //   if (m_gpgpu_sim->active()) {
-    //     m_gpgpu_sim->cycle();
-    //     sim_cycles = true;
-    //     m_gpgpu_sim->deadlock_check();
-    //   } else {
-    //     if (m_gpgpu_sim->cycle_insn_cta_max_hit()) {
-    //       ctx->the_gpgpusim->g_stream_manager
-    //           ->stop_all_running_kernels();
-    //       break;
-    //     }
-    //   }
-
-    //   active = m_gpgpu_sim->active();
-
-    // } while (active);
-    // pthread_mutex_unlock(&(ctx->the_gpgpusim->g_sim_lock));
+    m_vertex_copy_done = true;
   }
 
   void renderData_t::putDataOnColorBuffer() {
@@ -2219,8 +2194,9 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
         numberOfBlocks, m_last_vert_core,
         m_sShading_info.launched_threads_verts);
     m_sShading_info.launched_threads_verts += batchSize * numberOfBlocks;
-    printf("total launched threads = %d\n",
-           m_sShading_info.launched_threads_verts);
+    if (m_sShading_info.launched_threads_verts % 10000 == 0)
+      printf("total launched verts = %d\n",
+             m_sShading_info.launched_threads_verts);
   }
 
   void renderData_t::launchTCTile(unsigned clusterId, tcTilePtr_t tcTile,
@@ -2228,16 +2204,15 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
     if (tcTile == NULL) {
       assert(donePrim >= 0);
 
-      if (m_sShading_info.sent_simt_prims.find(donePrim) ==
-          m_sShading_info.sent_simt_prims.end()) {
-        // assert(0);
-        printf("WARNING: Prim not found - %d\n", donePrim);
+      if (m_sShading_info.sent_simt_prims.find(donePrim) !=
+              m_sShading_info.sent_simt_prims.end() &&
+          donePrim % 100 == 0) {
+        printf("received a prim done, sent_simt_prims = %d, remaining = %d\n",
+               donePrim, m_sShading_info.sent_simt_prims.size());
       }
       // assert(m_sShading_info.sent_simt_prims.find(donePrim) !=
       //        m_sShading_info.sent_simt_prims.end());
       m_sShading_info.sent_simt_prims.erase(donePrim);
-      printf("received a prim done, sent_simt_prims = %d, remaining = %d\n",
-             donePrim, m_sShading_info.sent_simt_prims.size());
 
       if (m_sShading_info.sent_simt_prims.size() == 0) {
         assert(m_sShading_info.fragKernel != NULL);
@@ -2315,8 +2290,9 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
     }
 
     m_sShading_info.launched_threads_frags += numberOfBlocks * threadsPerBlock;
-    printf("total launched threads = %d\n",
-           m_sShading_info.launched_threads_frags);
+    if (m_sShading_info.launched_threads_frags % 10000 == 0)
+      printf("total launched frags = %d\n",
+             m_sShading_info.launched_threads_frags);
   }
 
   byte* Utils::RGB888_to_RGBA888(byte * rgb, int size, byte alpha) {

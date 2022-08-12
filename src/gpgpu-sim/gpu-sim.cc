@@ -862,44 +862,32 @@ void gpgpu_sim::decrement_kernel_latency() {
 }
 
 kernel_info_t *gpgpu_sim::select_kernel(unsigned core_id) {
-    unsigned idx = 0;
-    if (core_id == 1) {
-      idx = 1;
-    }
-  if (m_running_kernels[idx] &&
-      !m_running_kernels[idx]->no_more_ctas_to_run() &&
-      !m_running_kernels[idx]->m_kernel_TB_latency) {
-    unsigned launch_uid = m_running_kernels[idx]->get_uid();
+  unsigned idx0[4] = {0};
+  unsigned idx1[4] = {1,2};
+  unsigned *idx;
+  static bool launched = false;
+  if (core_id == 0) {
+    idx = idx0;
+  } else {
+    idx = idx1;
+    if (launched && !m_running_kernels[1])
+      idx = (unsigned *) &idx1 + 1;
+  }
+  if (m_running_kernels[*idx] &&
+      !m_running_kernels[*idx]->no_more_ctas_to_run() &&
+      !m_running_kernels[*idx]->m_kernel_TB_latency) {
+    unsigned launch_uid = m_running_kernels[*idx]->get_uid();
     if (std::find(m_executed_kernel_uids.begin(), m_executed_kernel_uids.end(),
                   launch_uid) == m_executed_kernel_uids.end()) {
-      m_running_kernels[idx]->start_cycle =
+      m_running_kernels[*idx]->start_cycle =
           gpu_sim_cycle + gpu_tot_sim_cycle;
       m_executed_kernel_uids.push_back(launch_uid);
       m_executed_kernel_names.push_back(
-          m_running_kernels[idx]->name());
+          m_running_kernels[*idx]->name());
+    launched = true;
     }
-    return m_running_kernels[idx];
+    return m_running_kernels[*idx];
   }
-
-  // for (unsigned n = 0; n < m_running_kernels.size(); n++) {
-    // unsigned idx =
-        // (n + m_last_issued_kernel + 1) % m_config.max_concurrent_kernel;
-    if (kernel_more_cta_left(m_running_kernels[idx]) &&
-        !m_running_kernels[idx]->m_kernel_TB_latency) {
-      m_last_issued_kernel = idx;
-      m_running_kernels[idx]->start_cycle = gpu_sim_cycle + gpu_tot_sim_cycle;
-      // record this kernel for stat print if it is the first time this kernel
-      // is selected for execution
-      unsigned launch_uid = m_running_kernels[idx]->get_uid();
-      assert(std::find(m_executed_kernel_uids.begin(),
-                       m_executed_kernel_uids.end(),
-                       launch_uid) == m_executed_kernel_uids.end());
-      m_executed_kernel_uids.push_back(launch_uid);
-      m_executed_kernel_names.push_back(m_running_kernels[idx]->name());
-
-      return m_running_kernels[idx];
-    }
-  // }
   return NULL;
 }
 kernel_info_t *gpgpu_sim::select_kernel() {

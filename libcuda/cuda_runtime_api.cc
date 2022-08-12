@@ -610,6 +610,88 @@ void **weirdRegisterFuntion(void *fatCubin, const char *hostFun,
   
 }
 
+cudaError_t malloc_cpy(void **dptr, unsigned size, std::string file) {
+  std::ifstream dataStream(file, std::fstream::in | std::fstream::binary);
+  if (!dataStream.is_open()) {
+    abort();
+  }
+  uint8_t *host = (uint8_t *)malloc(sizeof(uint8_t) * size);
+  dataStream.read((char *)host, size);
+  dataStream.close();
+
+  assert(cudaMallocInternal(dptr, size) == CUDA_SUCCESS);
+  assert(cudaMemcpyInternal(*dptr, host, size,
+                            cudaMemcpyHostToDevice) == CUDA_SUCCESS);
+
+  // for (int i = 0; i < size; i++) printf("%u ", host[i]);
+  // uint8_t *after = (uint8_t *)malloc(sizeof(uint8_t) * size);
+  // assert(cudaMemcpyInternal(after, *dptr, size,
+  //                           cudaMemcpyDeviceToHost) == CUDA_SUCCESS);
+  // for (int i = 0; i < size; i++) 
+  //   assert(host[i] == after[i]);
+
+  free(host);
+  return cudaSuccess;
+}
+
+
+bool runbfs() {
+  void *dptr0;
+  malloc_cpy((void **) &dptr0, 8000000, "/home/pan251/test/bfs-3.1/cuMemcpyH2D-0-8000000.data");
+  void *dptr1;
+  malloc_cpy((void **) &dptr1, 23999880, "/home/pan251/test/bfs-3.1/cuMemcpyH2D-1-23999880.data");
+  void *dptr2;
+  malloc_cpy((void **) &dptr2, 1000000, "/home/pan251/test/bfs-3.1/cuMemcpyH2D-2-1000000.data");
+  void *dptr3;
+  malloc_cpy((void **) &dptr3, 1000000, "/home/pan251/test/bfs-3.1/cuMemcpyH2D-3-1000000.data");
+  void *dptr4;
+  malloc_cpy((void **) &dptr4, 1000000, "/home/pan251/test/bfs-3.1/cuMemcpyH2D-4-1000000.data");
+  void *dptr5;
+  malloc_cpy((void **) &dptr5, 4000000, "/home/pan251/test/bfs-3.1/cuMemcpyH2D-5-4000000.data");
+  void *dptr6;
+  malloc_cpy((void **) &dptr6, 1, "/home/pan251/test/bfs-3.1/cuMemcpyH2D-6-1.data");
+
+  cudaStream_t stream;
+  assert(cudaStreamCreateInternal(&stream) == CUDA_SUCCESS);
+  // CUDA cu kernel launch detected: name: Kernel, ptx_name: _Z6KernelP4NodePiPbS2_S2_S1_i, funcptr: 0x55d2fe9b5510, gdx: 8, gdy: 1, gdz: 1, bdx: 512, bdy: 1, bdz: 1, sharedBytes: 0, CUstream: (nil), args: dptr-1/8/dptr-5/8/4096/4/
+
+  cuobjdump_from_binary("/home/pan251/accel-sim-framework/gpu-app-collection/src/..//bin/11.0/release/bfs-rodinia-3.1");
+  // need to register each kernel
+  weirdRegisterFuntion(NULL,"0x55c974c5bb40","_Z6KernelP4NodePiPbS2_S2_S1_i", 
+                        "/home/pan251/test/bfs-rodinia-3.1.sm_60.ptx",
+                        "/home/pan251/test/bfs-rodinia-3.1.sm_60.ptx", 60);
+                        // "/home/pan251/test/bfs-rodinia-2.3.sm_70.ptxas");
+  weirdRegisterFuntion(NULL,"0x55c974c59fe0","_Z7Kernel2PbS_S_S_i", 
+                        "/home/pan251/test/bfs-rodinia-3.1.sm_60.ptx",
+                        "/home/pan251/test/bfs-rodinia-3.1.sm_60.ptx", 60);
+
+  dim3 gridDim(1954,1,1);
+  dim3 blockDim(512,1,1);
+  size_t sharedMem = 0;
+
+  unsigned long long arg7 = 1000000;
+
+  assert(cudaConfigureCallInternal(gridDim, blockDim, sharedMem, stream) == CUDA_SUCCESS);
+  cudaSetupArgumentInternal((void*) &dptr0,sizeof(dptr0),0);
+  cudaSetupArgumentInternal((void*) &dptr1,sizeof(dptr1),8);
+  cudaSetupArgumentInternal((void*) &dptr2,sizeof(dptr2),16);
+  cudaSetupArgumentInternal((void*) &dptr3,sizeof(dptr3),24);
+  cudaSetupArgumentInternal((void*) &dptr4,sizeof(dptr4),32);
+  cudaSetupArgumentInternal((void*) &dptr5,sizeof(dptr5),40);
+  cudaSetupArgumentInternal((void*) &arg7,sizeof(arg7),48);
+  // cudaSetupArgumentInternal((void*) &dptr6,sizeof(dptr6),48);
+
+  // cudaSetupArgumentInternal((void*) &dptr1,sizeof(dptr1),0);
+  // cudaSetupArgumentInternal((void*) &arg1,sizeof(arg1),8);
+  // cudaSetupArgumentInternal((void*) &dptr5,sizeof(dptr5),16);
+  // cudaSetupArgumentInternal((void*) &arg3,sizeof(arg3),24);
+  // cudaSetupArgumentInternal((void*) &arg4,sizeof(arg4),32);
+  // cudaSetupArgumentInternal((void*) &arg5,sizeof(arg5),40);
+
+  cudaLaunchInternal("0x55c974c5bb40");
+  
+}
+
 void **cudaRegisterFatBinaryInternal(void *fatCubin,
                                      gpgpu_context *gpgpu_ctx) {
   gpgpu_context *ctx;

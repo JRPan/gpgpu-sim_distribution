@@ -51,3 +51,7 @@ void **weirdRegisterFuntion(void *fatCubin, const char *hostFun,
                             char *deviceFun, const char *ptxfile,
                             const char *ptxinfo, unsigned version,
                             gpgpu_context *gpgpu_ctx = NULL);
+
+
+cudaError_t malloc_cpy(void **dptr, unsigned size, std::string file);
+bool runbfs();

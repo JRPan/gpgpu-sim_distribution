@@ -76,6 +76,8 @@ void gpgpu_sim::visualizer_printstat() {
   gzprintf(visualizer_file, "globalcyclecount: %lld\n", gpu_sim_cycle);
   gzprintf(visualizer_file, "globalinsncount: %lld\n", gpu_sim_insn);
   gzprintf(visualizer_file, "globaltotinsncount: %lld\n", gpu_tot_sim_insn);
+  gzprintf(visualizer_file, "warpslotfilled: %lld\n", gpu_occupancy.aggregate_warp_slot_filled);
+  gzprintf(visualizer_file, "warptotalslot: %lld\n", gpu_occupancy.aggregate_theoretical_warp_slots);
 
   time_vector_print_interval2gzfile(visualizer_file);
 
