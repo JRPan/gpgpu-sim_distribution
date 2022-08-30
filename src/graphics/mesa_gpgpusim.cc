@@ -2002,7 +2002,7 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
         m_sShading_info.vertKernel->setDrawCallDone();
       }
       if (m_sShading_info.completed_threads_verts % 10000 == 0)
-        printf("completed threads = %d out of %d\n",
+        printf("completed verts = %d out of %d\n",
                m_sShading_info.completed_threads_verts,
                m_sShading_info.launched_threads_verts);
     } else if (stream == m_sShading_info.cudaStreamFrag) {
@@ -2019,7 +2019,7 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
       }
 
       if (m_sShading_info.completed_threads_frags % 10000 == 0)
-        printf("completed threads = %d out of %d\n",
+        printf("completed frags = %d out of %d\n",
                m_sShading_info.completed_threads_frags,
                m_sShading_info.launched_threads_frags);
 
