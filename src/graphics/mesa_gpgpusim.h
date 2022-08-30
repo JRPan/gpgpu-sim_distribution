@@ -858,9 +858,14 @@ class renderData_t {
 
     uint64_t getBaseAddr() { return baseAddrs; }
 
-    uint64_t getTexelAddr(unsigned x, unsigned y, int level) {
+    uint64_t getTexelAddr(int x, int y, int level) {
       uint64_t width = mmOffsets[level].width;
       uint64_t height = mmOffsets[level].height;
+      if(x >= (int) width) x = x - width;
+      else if(x < 0)  x = x + width;
+      if(y >= (int) height) y = y - height;
+      else if(y < 0)  y = y + height;
+
       uint64_t levelBaseAddr =
           baseAddrs + (mmOffsets[level].offset * texelSize);
       uint64_t texelAddr = levelBaseAddr + (((y * width) + x) * texelSize);
