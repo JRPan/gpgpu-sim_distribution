@@ -1014,26 +1014,26 @@ void ptx_instruction::set_opcode_and_latency() {
           break;
       }
       break;
-    case REM_OP:
-      // Integer only int div latency
-      op = SFU_OP;
-      switch(get_type()){
-      case F64_TYPE:
-      case FF64_TYPE:
-      case F32_TYPE:
-          assert(0 && "REM_OP must be int type");
-          break;
-      case B32_TYPE:
-      case U32_TYPE:
-      case S32_TYPE:
-          latency = int_latency[4];
-          initiation_interval = int_init[4];
-          break;
-      default:
-          assert(0 && "Unknown REM_OP type");
-          break;
-      }
-      break;
+    // case REM_OP:
+    //   // Integer only int div latency
+    //   op = SFU_OP;
+    //   switch(get_type()){
+    //   case F64_TYPE:
+    //   case FF64_TYPE:
+    //   case F32_TYPE:
+    //       assert(0 && "REM_OP must be int type");
+    //       break;
+    //   case B32_TYPE:
+    //   case U32_TYPE:
+    //   case S32_TYPE:
+    //       latency = int_latency[4];
+    //       initiation_interval = int_init[4];
+    //       break;
+    //   default:
+    //       assert(0 && "Unknown REM_OP type");
+    //       break;
+    //   }
+    //   break;
     case SQRT_OP:
     case SIN_OP:
     case COS_OP:

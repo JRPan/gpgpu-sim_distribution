@@ -638,6 +638,7 @@ class gpgpu_sim : public gpgpu_t {
   bool kernel_more_cta_left(kernel_info_t *kernel) const;
   bool hit_max_cta_count() const;
   kernel_info_t *select_kernel();
+  kernel_info_t *select_kernel(unsigned core_id);
   PowerscalingCoefficients *get_scaling_coeffs();
   void decrement_kernel_latency();
 
