@@ -370,6 +370,7 @@ class kernel_info_t {
       unsigned ntid = m_next_cta.x * threads_per_cta();
       assert(graphicsCtaToCoreMap.find(ntid) != graphicsCtaToCoreMap.end());
       if (graphicsCtaToCoreMap[ntid] == sid) return true;
+      // return true;
       return false;
     }
     return true;
