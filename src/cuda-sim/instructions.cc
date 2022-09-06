@@ -6791,8 +6791,6 @@ void tex_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
 */
 
 void tex_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
-  // printf("JR - tex_impl - all copied from emerald\n");
-  // fflush(stdout);
   bool isTxf = (pI->to_string().find("txf") != std::string::npos);
   bool isTxp = (pI->to_string().find("txp") != std::string::npos);
   bool isTxb = (pI->to_string().find("txb") != std::string::npos);
@@ -7524,8 +7522,6 @@ void ztest_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
                     .getShaderData(uniqueThreadId, uniqueThreadId,
                                    FRAG_DEPTH_ADDR, 1, -1, -1, stream)
                     .u64;
-
-  //  thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_ld(z_space);
   thread->m_last_effective_address.set(addr);
   memory_space_t space = pI->get_space();
   thread->m_last_memory_space = space;
@@ -7556,9 +7552,6 @@ void zwrite_impl(const ptx_instruction *pI, ptx_thread_info *thread) {
     assert(0);
 
   thread->set_builtin_dst(dst, size);
-  //  thread->get_gpu()->gem5CudaGPU->getCudaCore(thread->get_hw_sid())->record_st(z_space);
-  // FIXME: This is just for counter in gem5. Assuming this is already recorded
-  // in the gpgpu-sim?
   thread->m_last_effective_address.set(addr);
   thread->m_last_memory_space = space;
 }

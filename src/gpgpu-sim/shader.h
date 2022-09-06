@@ -42,6 +42,7 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include <fstream>
 #include "graphics_models.h"
 
 //#include "../cuda-sim/ptx.tab.h"
@@ -1988,6 +1989,7 @@ class shader_core_ctx : public core_t {
 
   // used by simt_core_cluster:
   // modifiers
+  std::ofstream gtrace;
   void cycle();
   void reinit(unsigned start_thread, unsigned end_thread,
               bool reset_not_completed);

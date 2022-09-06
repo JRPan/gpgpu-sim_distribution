@@ -404,7 +404,8 @@ class gpgpu_sim_config : public power_config,
     sscanf(gpgpu_runtime_stat, "%d:%x", &gpu_stat_sample_freq,
            &gpu_runtime_stat_flag);
     m_shader_config.init();
-    ptx_set_tex_cache_linesize(m_shader_config.m_L1T_config.get_line_sz());
+    // tex cache now is unified with L1D
+    ptx_set_tex_cache_linesize(m_shader_config.m_L1D_config.get_line_sz());
     m_memory_config.init();
     init_clock_domains();
     power_config::init();
@@ -610,6 +611,7 @@ class gpgpu_sim : public gpgpu_t {
   shader_core_ctx *get_shader(int id);
 
   void perf_memcpy_to_gpu(size_t dst_start_addr, size_t count);
+  std::ofstream gtrace;
 
   // The next three functions added to be used by the functional simulation
   // function

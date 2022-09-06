@@ -1918,7 +1918,7 @@ void shader_core_ctx::add_prims() {
       m_vert_warps.pop_front();
       return;
     }
-    if (m_vert_warps.front().warpTids.empty() || primId == g_renderData.getPrimSize()) {
+    if (m_vert_warps.front().warpTids.empty() || primId == g_renderData.getPrimSize() - 1) {
       // if last prim in this warp mark it as the last one in
       // the batch
       m_prim_pipe.push_back(primPipe_t(primId, m_prim_delay, true));

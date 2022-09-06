@@ -2194,7 +2194,7 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
         numberOfBlocks, m_last_vert_core,
         m_sShading_info.launched_threads_verts);
     m_sShading_info.launched_threads_verts += batchSize * numberOfBlocks;
-    if (m_sShading_info.launched_threads_verts % 10000 == 0)
+    if (m_sShading_info.launched_threads_verts % (32*4*batchSize) == 0)
       printf("total launched verts = %d\n",
              m_sShading_info.launched_threads_verts);
   }
