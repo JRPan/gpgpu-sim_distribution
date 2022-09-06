@@ -292,6 +292,7 @@ bool stream_manager::register_finished_kernel(unsigned grid_uid) {
       kernel->notify_parent_finished();
       if (kernel->isGraphicsKernel()) {
         g_renderData.checkEndOfShader();
+        m_gpu->gtrace << "graphics kernel end: " << kernel->name() << std::endl;
       }
       sleep(0.5);
       fflush(stdout);
