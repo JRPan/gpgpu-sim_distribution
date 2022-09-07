@@ -1265,10 +1265,12 @@ void core_t::execute_warp_inst_t(warp_inst_t &inst, unsigned warpId) {
   }
   // opcode
   switch (pI->get_opcode()) {
-    case ZWRITE_OP:
-    case ZTEST_OP:
-    case LDV_OP: {
+    case ZTEST_OP: {
       sass << "LD.SYS";
+      break;
+    }
+    case LDV_OP: {
+      sass << "LDC.SYS";
       break;
     }
     case SETP_OP: {
@@ -1323,6 +1325,7 @@ void core_t::execute_warp_inst_t(warp_inst_t &inst, unsigned warpId) {
       }
       break;
     }
+    case ZWRITE_OP:
     case STP_OP:
     case STV_OP: {
       sass << "ST.SYS";
