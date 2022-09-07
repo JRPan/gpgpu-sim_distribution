@@ -294,14 +294,6 @@ bool stream_manager::register_finished_kernel(unsigned grid_uid) {
         g_renderData.checkEndOfShader();
         m_gpu->gtrace << "graphics kernel end: " << kernel->name() << std::endl;
       }
-      sleep(0.5);
-      fflush(stdout);
-      printf("start printing stats - shader %s\n",kernel->name().c_str());
-      ctx->the_gpgpusim->g_the_gpu->print_stats();
-      ctx->the_gpgpusim->g_the_gpu->update_stats();
-      ctx->print_simulation_time();
-      printf("end printing stats - shader %s\n",kernel->name().c_str());
-      fflush(stdout);
       delete kernel;
       return true;
     }
