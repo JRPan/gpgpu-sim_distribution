@@ -761,12 +761,10 @@ bool renderData_t::GPGPUSimActiveFrame() {
 
 bool renderData_t::GPGPUSimSimulationActive() {
   bool isFrame = GPGPUSimActiveFrame();
-  bool afterStartDrawcall = ((m_currentFrame == m_startFrame) &&
-                             (m_drawcall_num >= m_startDrawcall)) ||
-                            (m_currentFrame > m_startFrame);
+  bool afterStartDrawcall =
+      (m_drawcall_num >= m_startDrawcall) && (m_currentFrame >= m_startFrame);
   bool beforeEndDrawcall =
-      ((m_currentFrame == m_endFrame) && (m_drawcall_num <= m_endDrawcall)) ||
-      (m_currentFrame < m_endFrame);
+      (m_drawcall_num <= m_endDrawcall) && (m_currentFrame <= m_endFrame);
 
   return (isFrame && afterStartDrawcall && beforeEndDrawcall);
 }
@@ -944,11 +942,12 @@ void renderData_t::setPixelSize() {
   }*/
 
   unsigned fbFormat = getFramebufferFormat();
-  if (fbFormat == GL_RGBA or fbFormat == GL_RGBA8 or
-      fbFormat == GL_SRGB8_ALPHA8) {
+  if (fbFormat == GL_RGBA || fbFormat == GL_RGBA8 ||
+      fbFormat == GL_SRGB8_ALPHA8 ||
+      fbFormat == GL_RGB8 || fbFormat == GL_RGB || 
+      fbFormat == 0x8234 || fbFormat == GL_RGBA16F) {
     m_fbPixelSizeSim = 4;
-  } else if (fbFormat == GL_RGB8 or fbFormat == GL_RGB) {
-    m_fbPixelSizeSim = 4;
+    // GL_R16UI
   } else
     assert(0);
 }
@@ -985,7 +984,7 @@ byte* renderData_t::setRenderBuffer() {
   int rbStride;
   m_mesaCtx->Driver.MapRenderbuffer_base(
       m_mesaCtx, m_mesaColorBuffer, 0, 0, m_bufferWidth, m_bufferHeight,
-      GL_MAP_READ_BIT, &renderBuf, &rbStride);
+      GL_MAP_READ_BIT, &renderBuf, &rbStride, false);
 
   unsigned pixelSizeMesa = std::abs(rbStride) / m_bufferWidth;
   byte* tempBufferEnd = tempBuffer2 + m_colorBufferByteSize;
@@ -1065,7 +1064,7 @@ byte* renderData_t::setDepthBuffer() {
   int rbStride;
   m_mesaCtx->Driver.MapRenderbuffer_base(
       m_mesaCtx, rb, 0, 0, m_depthBufferWidth, m_depthBufferHeight,
-      GL_MAP_READ_BIT, &renderBuf, &rbStride);
+      GL_MAP_READ_BIT, &renderBuf, &rbStride, false);
 
   //_mesa_unpack_ubyte_stencil_row(rb->Format, 3, NULL, NULL);
 
@@ -1086,7 +1085,7 @@ byte* renderData_t::setDepthBuffer() {
 
 void renderData_t::setMesaCtx(struct gl_context* ctx) {
   m_mesaCtx = ctx;
-  assert(m_currentRenderBufferBytes == NULL);
+  // assert(m_currentRenderBufferBytes == NULL);
   m_currentRenderBufferBytes = setRenderBuffer();
 }
 
@@ -1266,10 +1265,10 @@ std::vector<uint64_t> renderData_t::fetchTexels(int modifier, int unit, int dim,
   std::unordered_set<uint64_t> checker;
   for (auto it = m_texelFetches.begin(); it != m_texelFetches.end(); it++) {
     if (curTexel >= startTexel and curTexel <= endTexel) {
-      if (checker.find(*it) == checker.end()) {
+      // if (checker.find(*it) == checker.end()) {
         texelFetches.push_back(*it);
         checker.insert(*it);
-      }
+      // }
     }
     curTexel++;
   }
@@ -1341,8 +1340,6 @@ void renderData_t::setAllTextures(void** fatCubinHandle) {
     check sp_tex_tile_cache.c:sp_find_cached_tile_tex
      */
     assert(tex->target != PIPE_TEXTURE_CUBE and
-           tex->target != PIPE_TEXTURE_1D_ARRAY and
-           tex->target != PIPE_TEXTURE_2D_ARRAY and
            tex->target != PIPE_TEXTURE_CUBE_ARRAY);
     unsigned curLevel = 0;
     std::vector<texelInfo_t::mipmapInfo_t> mmOffsets;
@@ -1706,8 +1703,8 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
     printf("\n");*/
     while (usedVerts != 0) {
       usedVerts--;
-      assert(primWarpTids->size() > 0);
-      primWarpTids->pop_front();
+      if(primWarpTids->size() > 0)
+        primWarpTids->pop_front();
     }
     return primId;
   }
@@ -1868,7 +1865,7 @@ void renderData_t::graphicsRegisterFunction(void** fatCubinHandle, const char* h
         m_mesaCtx, m_mesaColorBuffer, 0, 0, m_bufferWidth, m_bufferHeight,
         GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT,
         //| GL_MAP_INVALIDATE_BUFFER_BIT
-        &renderBuf, &rbStride);
+        &renderBuf, &rbStride,false);
     assert(std::abs(rbStride) % m_bufferWidth == 0);
     unsigned pixelSizeMesa = std::abs(rbStride) / m_bufferWidth;
     byte* tempBufferEnd = tempBuffer + m_colorBufferByteSize;

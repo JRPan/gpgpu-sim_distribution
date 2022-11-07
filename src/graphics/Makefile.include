@@ -1,5 +1,5 @@
 CXXFLAGS += -I$(CUDA_INSTALL_PATH)/include
-
+CXXFLAGS += -DGPGPUSIM
 CXXFLAGS += -I$(GPGPUSIM_MESA_ROOT)/mesa/include
 CXXFLAGS += -I$(GPGPUSIM_MESA_ROOT)/mesa/include/drm-uapi
 CXXFLAGS += -I$(GPGPUSIM_MESA_ROOT)/mesa/src

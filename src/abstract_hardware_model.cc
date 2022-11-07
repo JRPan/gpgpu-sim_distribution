@@ -1265,6 +1265,7 @@ void core_t::execute_warp_inst_t(warp_inst_t &inst, unsigned warpId) {
   }
   // opcode
   switch (pI->get_opcode()) {
+    case BLEND_OP:
     case ZTEST_OP: {
       sass << "LD.SYS";
       break;
@@ -1343,11 +1344,13 @@ void core_t::execute_warp_inst_t(warp_inst_t &inst, unsigned warpId) {
       sass << "FMA";
       break;
     }
+    case POW_OP:
     case RCP_OP: {
       sass << "MUFU.RCP";
       break;
     }
-    case MAX_OP: {
+    case MAX_OP:
+    case MIN_OP: {
       unsigned i_type = pI->get_type();
       if (i_type == F32_TYPE) {
         sass << "FMNMX";
@@ -1356,10 +1359,36 @@ void core_t::execute_warp_inst_t(warp_inst_t &inst, unsigned warpId) {
       }
       break;
     }
+    case SET_OP: {
+       if (pI->get_type() == F32_TYPE) {
+        sass << "FSET";
+       } else {
+        sass << "ISET";
+       }
+       break;
+    }
+    case SHR_OP: {
+      sass << "SHR";
+      break;
+    }
+    case CVT_OP: {
+      unsigned to_type = pI->get_type();
+      unsigned from_type = pI->get_type2();
+      unsigned rounding_mode = pI->rounding_mode();
+      if (to_type == F32_TYPE && from_type == F32_TYPE) {
+        sass << "F2F";
+      } else if (to_type == F32_TYPE && from_type == S32_TYPE) {
+        sass << "I2F";
+      } else {
+        assert(0);
+      }
+      break;
+    }
+
       
     default:
       // implement this
-      printf("WARNING: opcode not implemented\n");
+      printf("ERROR: opcode not implemented\n");
       assert(0);
   }
   sass << " ";
@@ -1371,6 +1400,7 @@ void core_t::execute_warp_inst_t(warp_inst_t &inst, unsigned warpId) {
   }
   // mem
   switch (pI->get_opcode()) {
+    case BLEND_OP:
     case ZWRITE_OP:
     case ZTEST_OP:
     case LDV_OP:

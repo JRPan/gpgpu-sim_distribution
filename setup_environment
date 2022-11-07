@@ -1,12 +1,19 @@
 # see README before running this
-export GPGPUSIM_MESA_ROOT=/home/pan251/emerald/gem5-graphics
-export LIBPATH=:$LIBPATH:GPGPUSIM_MESA_ROOT/mesa/lib/gallium
+# export GPGPUSIM_MESA_ROOT=/home/pan251/emerald/gem5-graphics
+# export LIBPATH=:$LIBPATH:GPGPUSIM_MESA_ROOT/mesa/lib/gallium
+
+# export APITRACE_LIB_PATH=/home/pan251/emerald/apitrace/build/retrace/libglretrace.so
+
+# export LD_LIBRARY_PATH=/home/pan251/emerald/gem5-graphics/mesa/lib:$LD_LIBRARY_PATH
+# export LD_LIBRARY_PATH=/home/pan251/emerald/gem5-graphics/mesa/lib/gallium:$LD_LIBRARY_PATH
+
+export GPGPUSIM_MESA_ROOT=/home/pan251
+export LIBPATH=:/home/pan251/mydri/usr/local/lib/x86_64-linux-gnu/:$LIBPATH
 
 export APITRACE_LIB_PATH=/home/pan251/emerald/apitrace/build/retrace/libglretrace.so
 
 export LD_LIBRARY_PATH=/home/pan251/emerald/gem5-graphics/mesa/lib:$LD_LIBRARY_PATH
-export LD_LIBRARY_PATH=/home/pan251/emerald/gem5-graphics/mesa/lib/gallium:$LD_LIBRARY_PATH
-
+export LD_LIBRARY_PATH=/home/pan251/mydri/usr/local/lib/x86_64-linux-gnu/:$LD_LIBRARY_PATH
 
 ps -p $$ | awk '/bash/ || / sh/ || /zsh/ {exit 1;}' && echo "WARNING ** source setup_environment must be run in a bash, zsh or sh shell; see README"
 

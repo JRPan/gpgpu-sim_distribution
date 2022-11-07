@@ -313,19 +313,7 @@ unsigned ptx_thread_info::get_builtin(int builtin_id, unsigned dim_mod) {
     case VERT_ATTRIB1:
     case VERT_ATTRIB2:
     case VERT_ATTRIB3:
-    case SHADER_CONST00:
-    case SHADER_CONST01:
-    case SHADER_CONST02:
-    case SHADER_CONST03:
-    case SHADER_CONST04:
-    case SHADER_CONST05:
-    case SHADER_CONST06:
-    case SHADER_CONST07:
-    case SHADER_CONST08:
-    case SHADER_CONST09:
-    case SHADER_CONST10:
-    case SHADER_CONST11:
-    case SHADER_CONST12:
+    case SHADER_CONST00 ... SHADER_CONST12:
     case VERT_OUT0:
     case VERT_OUT1:
     case VERT_OUT2:
