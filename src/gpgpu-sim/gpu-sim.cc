@@ -1351,7 +1351,10 @@ void gpgpu_sim::gpu_print_stat(unsigned kernel_id) {
   unsigned long long kernel_cycle =
       k->end_cycle - k->start_cycle + k->m_launch_latency;
 
-  fprintf(statfout, "%s", kernel_info_str.c_str());
+  // fprintf(statfout, "%s", kernel_info_str.c_str());
+  printf("kernel_name = %s\n",
+         (k->get_name().substr(0, 64) + "-" + std::to_string(kernel_id)).c_str());
+  printf("kernel_launch_uid = %d\n", kernel_id);
 
   printf("gpu_sim_cycle = %lld\n", kernel_cycle); //kernel specific
   printf("gpu_sim_insn = %lld\n", gpu_sim_insn_per_kernel[kernel_id]);  //kernel specific
@@ -1419,7 +1422,7 @@ void gpgpu_sim::gpu_print_stat(unsigned kernel_id) {
   shader_print_cache_stats(stdout,kernel_id);
 
   cache_stats core_cache_stats;
-  core_cache_stats.expand_cache_stats(kernel_id);
+  core_cache_stats.expand_cache_stats(aggregated_l1_stats.get_size() - 1);
   core_cache_stats.clear();
   for (unsigned i = 0; i < m_config.num_cluster(); i++) {
     m_cluster[i]->get_cache_stats(core_cache_stats);
@@ -1463,7 +1466,7 @@ void gpgpu_sim::gpu_print_stat(unsigned kernel_id) {
   // L2 cache stats
   if (!m_memory_config->m_L2_config.disabled()) {
     cache_stats l2_stats;
-    l2_stats.expand_cache_stats(kernel_id);
+    l2_stats.expand_cache_stats(aggregated_l2_stats.get_size() - 1);
     struct cache_sub_stats l2_css;
     struct cache_sub_stats total_l2_css;
     l2_stats.clear();
