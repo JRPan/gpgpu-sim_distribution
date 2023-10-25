@@ -42,6 +42,7 @@
 #include "addrdec.h"
 #include "gpu-cache.h"
 #include "shader.h"
+#include "pim.h"
 
 // constants for statistics printouts
 #define GPU_RSTAT_SHD_INFO 0x1
@@ -522,6 +523,7 @@ class gpgpu_sim : public gpgpu_t {
   void set_prop(struct cudaDeviceProp *prop);
 
   void launch(kernel_info_t *kinfo);
+  void launch_pim(kernel_info_t *kinfo);
   bool can_start_kernel();
   unsigned finished_kernel();
   void set_kernel_done(kernel_info_t *kernel);
@@ -622,10 +624,12 @@ class gpgpu_sim : public gpgpu_t {
  protected:
   ///// data /////
   class simt_core_cluster **m_cluster;
+  class pim_core_cluster **m_pim_cluster;
   class memory_partition_unit **m_memory_partition_unit;
   class memory_sub_partition **m_memory_sub_partition;
 
   std::vector<kernel_info_t *> m_running_kernels;
+  std::vector<kernel_info_t *> m_running_pims;
   unsigned m_last_issued_kernel;
 
   std::list<unsigned> m_finished_kernel;

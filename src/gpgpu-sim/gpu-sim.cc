@@ -401,6 +401,8 @@ void shader_core_config::reg_options(class OptionParser *opp) {
       "Maximum number of named barriers per CTA (default 16)", "16");
   option_parser_register(opp, "-gpgpu_n_clusters", OPT_UINT32, &n_simt_clusters,
                          "number of processing clusters", "10");
+  option_parser_register(opp, "-gpgpu_n_pim_cluster", OPT_UINT32, &n_pim_clusters,
+                         "number of processing clusters", "1");
   option_parser_register(opp, "-gpgpu_n_cores_per_cluster", OPT_UINT32,
                          &n_simt_cores_per_cluster,
                          "number of simd cores per cluster", "3");
@@ -797,6 +799,32 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
   assert(n < m_running_kernels.size());
 }
 
+void gpgpu_sim::launch_pim(kernel_info_t *kinfo) {
+  // unsigned cta_size = kinfo->threads_per_cta();
+  // if (cta_size > m_shader_config->n_thread_per_shader) {
+  //   printf(
+  //       "Execution error: Shader kernel CTA (block) size is too large for "
+  //       "microarch config.\n");
+  //   printf("                 CTA size (x*y*z) = %u, max supported = %u\n",
+  //          cta_size, m_shader_config->n_thread_per_shader);
+  //   printf(
+  //       "                 => either change -gpgpu_shader argument in "
+  //       "gpgpusim.config file or\n");
+  //   printf(
+  //       "                 modify the CUDA source to decrease the kernel block "
+  //       "size.\n");
+  //   abort();
+  // }
+  unsigned n = 0;
+  for (n = 0; n < m_running_pims.size(); n++) {
+    if ((NULL == m_running_pims[n]) || m_running_pims[n]->done()) {
+      m_running_pims[n] = kinfo;
+      break;
+    }
+  }
+  assert(n < m_running_pims.size());
+}
+
 bool gpgpu_sim::can_start_kernel() {
   for (unsigned n = 0; n < m_running_kernels.size(); n++) {
     if ((NULL == m_running_kernels[n]) || m_running_kernels[n]->done())
@@ -823,12 +851,23 @@ bool gpgpu_sim::kernel_more_cta_left(kernel_info_t *kernel) const {
 
 bool gpgpu_sim::get_more_cta_left() const {
   if (hit_max_cta_count()) return false;
+  bool more_cta = false;
 
   for (unsigned n = 0; n < m_running_kernels.size(); n++) {
-    if (m_running_kernels[n] && !m_running_kernels[n]->no_more_ctas_to_run())
-      return true;
+    if (m_running_kernels[n] && !m_running_kernels[n]->no_more_ctas_to_run()) {
+      more_cta = true;
+      break;
+    }
   }
-  return false;
+
+  for (unsigned n = 0; n < m_running_pims.size(); n++) {
+    if (m_running_pims[n] && !m_running_pims[n]->no_more_ctas_to_run()) {
+      more_cta = true;
+      break;
+    }
+  }
+
+  return more_cta;
 }
 
 void gpgpu_sim::decrement_kernel_latency() {
@@ -980,6 +1019,7 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
           "GPGPU-Sim uArch: performance model initialization complete.\n");
 
   m_running_kernels.resize(config.max_concurrent_kernel, NULL);
+  m_running_pims.resize(config.max_concurrent_kernel, NULL);
   m_last_issued_kernel = 0;
   m_last_cluster_issue = m_shader_config->n_simt_clusters -
                          1;  // this causes first launch to use simt cluster 0
@@ -1967,6 +2007,10 @@ void gpgpu_sim::cycle() {
           gpu_occupancy.aggregate_warp_slot_filled,
           gpu_occupancy.aggregate_theoretical_warp_slots);
     }
+
+    for (unsigned i = 0; i < m_shader_config->n_pim_clusters; i++) {
+    }
+
     float temp = 0;
     for (unsigned i = 0; i < m_shader_config->num_shader(); i++) {
       temp += m_shader_stats->m_pipeline_duty_cycle[i];

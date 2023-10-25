@@ -354,6 +354,7 @@ class kernel_info_t {
   void destroy_cta_streams();
   void print_parent_info();
   kernel_info_t *get_parent() { return m_parent_kernel; }
+  bool is_pim() { return m_is_pim; }
 
  private:
   kernel_info_t *m_parent_kernel;
@@ -374,6 +375,8 @@ class kernel_info_t {
 
   unsigned m_kernel_TB_latency;  // this used for any CPU-GPU kernel latency and
                                  // counted in the gpu_cycle
+ protected:
+  bool m_is_pim;  
 };
 
 class core_config {
