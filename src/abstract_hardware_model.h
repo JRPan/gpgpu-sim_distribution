@@ -966,7 +966,7 @@ class inst_t {
   }
   bool valid() const { return m_decoded; }
   virtual void print_insn(FILE *fp) const {
-    fprintf(fp, " [inst @ pc=0x%04x] ", pc);
+    fprintf(fp, " [inst @ pc=0x%04llx] ", pc);
   }
   bool is_load() const {
     return (op == LOAD_OP || op == TENSOR_CORE_LOAD_OP ||
@@ -1059,6 +1059,13 @@ class warp_inst_t : public inst_t {
     m_uid = 0;
     m_empty = true;
     m_config = NULL;
+
+    // Ni: 
+    m_is_ldgsts = false;
+    m_is_ldgdepbar = false;
+    m_is_depbar = false;
+
+    m_depbar_group_no = 0;
   }
   warp_inst_t(const core_config *config) {
     m_uid = 0;
@@ -1072,6 +1079,13 @@ class warp_inst_t : public inst_t {
     m_is_printf = false;
     m_is_cdp = 0;
     should_do_atomic = true;
+
+    // Ni: 
+    m_is_ldgsts = false;
+    m_is_ldgdepbar = false;
+    m_is_depbar = false;
+
+    m_depbar_group_no = 0;
   }
   virtual ~warp_inst_t() {}
 
@@ -1160,7 +1174,7 @@ class warp_inst_t : public inst_t {
 
   // accessors
   virtual void print_insn(FILE *fp) const {
-    fprintf(fp, " [inst @ pc=0x%04x] ", pc);
+    fprintf(fp, " [inst @ pc=0x%04llx] ", pc);
     for (int i = (int)m_config->warp_size - 1; i >= 0; i--)
       fprintf(fp, "%c", ((m_warp_active_mask[i]) ? '1' : '0'));
   }
@@ -1254,6 +1268,13 @@ class warp_inst_t : public inst_t {
   // Jin: cdp support
  public:
   int m_is_cdp;
+
+  // Ni: add boolean to indicate whether the instruction is ldgsts
+  bool m_is_ldgsts;
+  bool m_is_ldgdepbar;
+  bool m_is_depbar;
+
+  unsigned int m_depbar_group_no;
 };
 
 void move_warp(warp_inst_t *&dst, warp_inst_t *&src);
@@ -1389,7 +1410,7 @@ class register_set {
     assert(has_ready());
     warp_inst_t **ready;
     ready = NULL;
-    unsigned reg_id;
+    unsigned reg_id = 0;
     for (unsigned i = 0; i < regs.size(); i++) {
       if (not regs[i]->empty()) {
         if (ready and (*ready)->get_uid() < regs[i]->get_uid()) {
