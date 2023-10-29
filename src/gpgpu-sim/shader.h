@@ -123,6 +123,20 @@ class shd_warp_t {
     // Jin: cdp support
     m_cdp_latency = 0;
     m_cdp_dummy = false;
+
+    // Ni: Initialize ldgdepbar_id
+    m_ldgdepbar_id = 0;
+    m_depbar_start_id = 0;
+    m_depbar_group = 0;
+
+    // Ni: Set waiting to false
+    m_waiting_ldgsts = false;
+
+    // Ni: Clear m_ldgdepbar_buf
+    for (int i = 0; i < m_ldgdepbar_buf.size(); i++) {
+      m_ldgdepbar_buf[i].clear();
+    }
+    m_ldgdepbar_buf.clear();
   }
   void init(address_type start_pc, unsigned cta_id, unsigned wid,
             const std::bitset<MAX_WARP_SIZE> &active,
@@ -140,6 +154,20 @@ class shd_warp_t {
     // Jin: cdp support
     m_cdp_latency = 0;
     m_cdp_dummy = false;
+
+    // Ni: Initialize ldgdepbar_id
+    m_ldgdepbar_id = 0;
+    m_depbar_start_id = 0;
+    m_depbar_group = 0;
+
+    // Ni: Set waiting to false
+    m_waiting_ldgsts = false;
+
+    // Ni: Clear m_ldgdepbar_buf
+    for (int i = 0; i < m_ldgdepbar_buf.size(); i++) {
+      m_ldgdepbar_buf[i].clear();
+    }
+    m_ldgdepbar_buf.clear();
   }
 
   bool functional_done() const;
@@ -288,6 +316,14 @@ class shd_warp_t {
  public:
   unsigned int m_cdp_latency;
   bool m_cdp_dummy;
+
+  // Ni: LDGDEPBAR barrier support
+  public:
+    unsigned int m_ldgdepbar_id;  // LDGDEPBAR barrier ID
+    std::vector<std::vector<warp_inst_t>> m_ldgdepbar_buf;  // LDGDEPBAR barrier buffer
+    unsigned int m_depbar_start_id;
+    unsigned int m_depbar_group;
+    bool m_waiting_ldgsts; // Ni: Whether the warp is waiting for the LDGSTS instrs to finish
 };
 
 inline unsigned hw_tid_from_wid(unsigned wid, unsigned warp_size, unsigned i) {
@@ -351,8 +387,8 @@ class scheduler_unit {  // this can be copied freely, so can be used in std
         m_sfu_out(sfu_out),
         m_int_out(int_out),
         m_tensor_core_out(tensor_core_out),
-        m_spec_cores_out(spec_cores_out),
         m_mem_out(mem_out),
+        m_spec_cores_out(spec_cores_out),
         m_id(id) {}
   virtual ~scheduler_unit() {}
   virtual void add_supervised_warp_id(int i) {
@@ -1284,7 +1320,7 @@ class sp_unit : public pipelined_simd_unit {
 class specialized_unit : public pipelined_simd_unit {
  public:
   specialized_unit(register_set *result_port, const shader_core_config *config,
-                   shader_core_ctx *core, unsigned supported_op,
+                   shader_core_ctx *core, int supported_op,
                    char *unit_name, unsigned latency, unsigned issue_reg_id);
   virtual bool can_issue(const warp_inst_t &inst) const {
     if (inst.op != m_supported_op) {
@@ -1297,7 +1333,7 @@ class specialized_unit : public pipelined_simd_unit {
   bool is_issue_partitioned() { return true; }
 
  private:
-  unsigned m_supported_op;
+  int m_supported_op;
 };
 
 class simt_core_cluster;
@@ -1314,6 +1350,15 @@ class ldst_unit : public pipelined_simd_unit {
             const memory_config *mem_config, class shader_core_stats *stats,
             unsigned sid, unsigned tpc);
 
+  // Add a structure to record the LDGSTS instructions,
+  // similar to m_pending_writes, but since LDGSTS does not have a output register
+  // to write to, so a new structure needs to be added
+  /* A multi-level map: unsigned (warp_id) -> unsigned (pc) -> unsigned (addr) -> unsigned (count)
+   */
+  std::map<unsigned /*warp_id*/,
+           std::map<unsigned /*pc*/, 
+                  std::map<unsigned /*addr*/, unsigned /*count*/>>>
+      m_pending_ldgsts;
   // modifiers
   virtual void issue(register_set &inst);
   bool is_issue_partitioned() { return false; }
@@ -1622,13 +1667,13 @@ class shader_core_config : public core_config {
   unsigned int gpgpu_operand_collector_num_out_ports_gen;
   unsigned int gpgpu_operand_collector_num_out_ports_int;
 
-  int gpgpu_num_sp_units;
-  int gpgpu_tensor_core_avail;
-  int gpgpu_num_dp_units;
-  int gpgpu_num_sfu_units;
-  int gpgpu_num_tensor_core_units;
-  int gpgpu_num_mem_units;
-  int gpgpu_num_int_units;
+  unsigned int gpgpu_num_sp_units;
+  unsigned int gpgpu_tensor_core_avail;
+  unsigned int gpgpu_num_dp_units;
+  unsigned int gpgpu_num_sfu_units;
+  unsigned int gpgpu_num_tensor_core_units;
+  unsigned int gpgpu_num_mem_units;
+  unsigned int gpgpu_num_int_units;
 
   // Shader core resources
   unsigned gpgpu_shader_registers;
@@ -1735,7 +1780,7 @@ struct shader_core_stats_pod {
   unsigned gpgpu_n_const_insn;
   unsigned gpgpu_n_param_insn;
   unsigned gpgpu_n_shmem_bkconflict;
-  unsigned gpgpu_n_cache_bkconflict;
+  unsigned gpgpu_n_l1cache_bkconflict;
   int gpgpu_n_intrawarp_mshr_merge;
   unsigned gpgpu_n_cmem_portconflict;
   unsigned gpu_stall_shd_mem_breakdown[N_MEM_STAGE_ACCESS_TYPE]
@@ -2068,6 +2113,9 @@ class shader_core_ctx : public core_t {
   // used by functional simulation:
   // modifiers
   virtual void warp_exit(unsigned warp_id);
+
+  // Ni: Unset ldgdepbar
+  void unset_depbar(const warp_inst_t &inst);
 
   // accessors
   virtual bool warp_waiting_at_barrier(unsigned warp_id) const;
