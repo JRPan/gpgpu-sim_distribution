@@ -1353,6 +1353,7 @@ class core_t {
   unsigned get_reduction_value(unsigned ctaid, unsigned barid) {
     return reduction_storage[ctaid][barid];
   }
+  mem_fetch_interface *m_icnt;
 
  protected:
   class gpgpu_sim *m_gpu;

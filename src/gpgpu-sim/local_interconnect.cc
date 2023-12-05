@@ -325,6 +325,7 @@ void LocalInterconnect::Init() {
 void LocalInterconnect::Push(unsigned input_deviceID, unsigned output_deviceID,
                              void* data, unsigned int size) {
   unsigned subnet;
+  // TODO
   if (n_subnets == 1) {
     subnet = 0;
   } else {

@@ -406,6 +406,9 @@ void shader_core_config::reg_options(class OptionParser *opp) {
   option_parser_register(opp, "-gpgpu_n_cores_per_cluster", OPT_UINT32,
                          &n_simt_cores_per_cluster,
                          "number of simd cores per cluster", "3");
+  option_parser_register(opp, "-gpgpu_n_pim_cores_per_cluster", OPT_UINT32,
+                         &n_pim_cores_per_cluster,
+                         "number of simd cores per cluster", "1");
   option_parser_register(opp, "-gpgpu_n_cluster_ejection_buffer_size",
                          OPT_UINT32, &n_simt_ejection_buffer_size,
                          "number of packets in ejection buffer", "8");
@@ -1011,7 +1014,7 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   }
 
   icnt_wrapper_init();
-  icnt_create(m_shader_config->n_simt_clusters,
+  icnt_create(m_shader_config->n_simt_clusters + m_shader_config->n_pim_clusters,
               m_memory_config->m_n_mem_sub_partition);
 
   time_vector_create(NUM_MEM_REQ_STAT);
@@ -1125,6 +1128,7 @@ bool gpgpu_sim::active() {
   ;
   if (icnt_busy()) return true;
   if (get_more_cta_left()) return true;
+  if (pim_active) return true;
   return false;
 }
 
@@ -1910,6 +1914,8 @@ void gpgpu_sim::cycle() {
     // shader core loading (pop from ICNT into core) follows CORE clock
     for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++)
       m_cluster[i]->icnt_cycle();
+    for (unsigned i = 0; i < m_shader_config->n_pim_clusters; i++)
+      m_pim_cluster[i]->icnt_cycle();
   }
   unsigned partiton_replys_in_parallel_per_cycle = 0;
   if (clock_mask & ICNT) {
@@ -2009,6 +2015,7 @@ void gpgpu_sim::cycle() {
     }
 
     for (unsigned i = 0; i < m_shader_config->n_pim_clusters; i++) {
+      m_pim_cluster[i]->core_cycle();
     }
 
     float temp = 0;

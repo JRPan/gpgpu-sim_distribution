@@ -1597,16 +1597,31 @@ class shader_core_config : public core_config {
   void reg_options(class OptionParser *opp);
   unsigned max_cta(const kernel_info_t &k) const;
   unsigned num_shader() const {
-    return n_simt_clusters * n_simt_cores_per_cluster;
+    return n_simt_clusters * n_simt_cores_per_cluster + n_pim_clusters * n_pim_cores_per_cluster;
   }
   unsigned sid_to_cluster(unsigned sid) const {
-    return sid / n_simt_cores_per_cluster;
+    if (sid < n_simt_clusters * n_simt_cores_per_cluster)
+      return sid / n_simt_cores_per_cluster;
+    else {
+      return (sid - n_simt_clusters * n_simt_cores_per_cluster) /
+             n_pim_cores_per_cluster +
+             n_simt_clusters;
+    }
   }
   unsigned sid_to_cid(unsigned sid) const {
-    return sid % n_simt_cores_per_cluster;
+    if (sid < n_simt_clusters * n_simt_cores_per_cluster) {
+      return sid % n_simt_cores_per_cluster;
+    } else {
+      return (sid - n_simt_clusters * n_simt_cores_per_cluster) %
+             n_pim_cores_per_cluster;
+    }
   }
   unsigned cid_to_sid(unsigned cid, unsigned cluster_id) const {
-    return cluster_id * n_simt_cores_per_cluster + cid;
+    if (cluster_id < n_simt_clusters)
+      return cluster_id * n_simt_cores_per_cluster + cid;
+    else
+      return (cluster_id - n_simt_clusters) * n_simt_cores_per_cluster +
+             n_simt_clusters * n_simt_cores_per_cluster + cid;
   }
   void set_pipeline_latency();
 
@@ -1692,6 +1707,7 @@ class shader_core_config : public core_config {
   unsigned max_tensor_core_latency;
 
   unsigned n_simt_cores_per_cluster;
+  unsigned n_pim_cores_per_cluster;
   unsigned n_simt_clusters;
   unsigned n_pim_clusters;
   unsigned n_simt_ejection_buffer_size;
@@ -2030,6 +2046,7 @@ class shader_core_stats : public shader_core_stats_pod {
   friend class shader_core_ctx;
   friend class ldst_unit;
   friend class simt_core_cluster;
+  friend class pim_core_cluster;
   friend class scheduler_unit;
   friend class TwoLevelScheduler;
   friend class LooseRoundRobbinScheduler;
@@ -2492,7 +2509,6 @@ class shader_core_ctx : public core_t {
   thread_ctx_t *m_threadState;
 
   // interconnect interface
-  mem_fetch_interface *m_icnt;
   shader_core_mem_fetch_allocator *m_mem_fetch_allocator;
 
   // fetch
