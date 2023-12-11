@@ -2136,7 +2136,7 @@ void gpgpu_sim::cycle() {
 
     if (!(gpu_sim_cycle % 50000)) {
       // deadlock detection
-      if (m_config.gpu_deadlock_detect && gpu_sim_insn == last_gpu_sim_insn) {
+      if (m_config.gpu_deadlock_detect && gpu_sim_insn == last_gpu_sim_insn && !pim_active) {
         gpu_deadlock = true;
       } else {
         last_gpu_sim_insn = gpu_sim_insn;

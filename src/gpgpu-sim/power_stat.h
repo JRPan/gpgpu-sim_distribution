@@ -1141,7 +1141,7 @@ class power_stat_t {
 
   unsigned long long get_icnt_simt_to_mem(bool aggregate_stat) {
     long total = 0;
-    for (unsigned i = 0; i < m_config->n_simt_clusters; ++i){
+    for (unsigned i = 0; i < (m_config->n_simt_clusters + m_config->n_pim_clusters); ++i){
       if(aggregate_stat){
         total += pwr_mem_stat->n_simt_to_mem[CURRENT_STAT_IDX][i];
       }
@@ -1155,7 +1155,7 @@ class power_stat_t {
 
   unsigned long long get_icnt_mem_to_simt(bool aggregate_stat) {
     long total = 0;
-    for (unsigned i = 0; i < m_config->n_simt_clusters; ++i) {
+    for (unsigned i = 0; i < (m_config->n_simt_clusters + m_config->n_pim_clusters); ++i) {
       if(aggregate_stat){
         total += pwr_mem_stat->n_mem_to_simt[CURRENT_STAT_IDX][i];
       }

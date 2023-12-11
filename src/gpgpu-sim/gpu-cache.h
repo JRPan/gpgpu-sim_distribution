@@ -811,6 +811,9 @@ class cache_config {
   new_addr_type block_addr(new_addr_type addr) const {
     return addr & ~(new_addr_type)(m_line_sz - 1);
   }
+  new_addr_type sector_addr(new_addr_type addr) const {
+    return addr & ~(new_addr_type)(SECTOR_SIZE - 1);
+  }
   new_addr_type mshr_addr(new_addr_type addr) const {
     return addr & ~(new_addr_type)(m_atom_sz - 1);
   }

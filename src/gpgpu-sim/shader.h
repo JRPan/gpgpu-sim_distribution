@@ -1717,7 +1717,7 @@ class shader_core_config : public core_config {
 
   unsigned smem_latency;
 
-  unsigned mem2device(unsigned memid) const { return memid + n_simt_clusters; }
+  unsigned mem2device(unsigned memid) const { return memid + n_simt_clusters + n_pim_clusters; }
 
   // Jin: concurrent kernel on sm
   bool gpgpu_concurrent_kernel_sm;

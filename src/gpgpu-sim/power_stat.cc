@@ -131,10 +131,12 @@ void power_mem_stat_t::init() {
     n_req[i] = (unsigned *)calloc(m_config->m_n_mem, sizeof(unsigned));
 
     // Interconnect stats
-    n_mem_to_simt[i] = (long *)calloc(m_core_config->n_simt_clusters,
-                                      sizeof(long));  // Counted at SM
-    n_simt_to_mem[i] = (long *)calloc(m_core_config->n_simt_clusters,
-                                      sizeof(long));  // Counted at SM
+    n_mem_to_simt[i] = (long *)calloc(
+        m_core_config->n_simt_clusters + m_core_config->n_pim_clusters,
+        sizeof(long));  // Counted at SM
+    n_simt_to_mem[i] = (long *)calloc(
+        m_core_config->n_simt_clusters + m_core_config->n_pim_clusters,
+        sizeof(long));  // Counted at SM
   }
 }
 
@@ -159,7 +161,9 @@ void power_mem_stat_t::save_stats() {
     n_req[PREV_STAT_IDX][i] = n_req[CURRENT_STAT_IDX][i];
   }
 
-  for (unsigned i = 0; i < m_core_config->n_simt_clusters; i++) {
+  for (unsigned i = 0;
+       i < (m_core_config->n_simt_clusters + m_core_config->n_pim_clusters);
+       i++) {
     n_simt_to_mem[PREV_STAT_IDX][i] =
         n_simt_to_mem[CURRENT_STAT_IDX][i];  // Interconnect
     n_mem_to_simt[PREV_STAT_IDX][i] =

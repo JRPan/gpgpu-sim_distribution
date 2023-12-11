@@ -75,12 +75,15 @@ enum pim_data_type {
 
 enum tile_status {
   TILE_INITIATED,
-  TILE_ROW_PROGRAMMED,
+  TILE_PROGRAM,
+  TILE_LOAD_ROW_ISSUED,
   TILE_ROW_PROGRAMMING,
   TILE_PROGRAMMED,
+  TILE_LOAD_COL_ISSUED,
   TILE_COMPUTING,
-  TILE_READING_OUT,
-  TILE_READ_OUT,
+  TILE_STALL_SAMPLE,
+  TILE_SAMPLE,
+  TILE_DONE,
   TILE_NUM_STATUS
 };
 class pim_core_config;
@@ -138,15 +141,19 @@ class pim_core_ctx : public core_t {
     m_layer = layer;
   }
 
-  void program();
-  void compute();
-  void read_out();
   void memory_cycle();
-  void map();
+  void issue();
+  void execute();
+  void commit();
   void handle_response_fifo();
   mem_fetch *generate_mf(new_addr_type addr);
   void process_program_buffer(unsigned tile_id, mem_fetch *mf);
   void process_input_buffer(unsigned tile_id, mem_fetch *mf);
+  int test_res_bus(int latency);
+
+  static const unsigned MAX_ALU_LATENCY = 512;
+  unsigned num_result_bus;
+  std::vector<std::bitset<MAX_ALU_LATENCY> *> m_result_bus;
  protected:
   pim_core_config *m_pim_core_config;
   pim_layer * m_layer;
@@ -207,6 +214,8 @@ class pim_core_ctx : public core_t {
   const shader_core_config *m_config;
   const memory_config *m_memory_config;
   class pim_core_cluster *m_cluster;
+  std::vector<register_set> m_issue_reg;
+  std::vector<register_set> m_result_reg;
 
   // statistics
   shader_core_stats *m_stats;
@@ -224,8 +233,8 @@ class pim_core_ctx : public core_t {
   std::vector<unsigned> m_pending_loads;
   std::unordered_map<mem_fetch *, unsigned> m_loads;
   std::vector<pim_tile *> m_tiles;
-  new_addr_type weight_addr = 0xBADC0FFEE0DDF00D;
-  new_addr_type input_addr = 0xBADC0FFEE0DDF00D + 1024*1024;
+  new_addr_type weight_addr = 0xffff7fffffffffff;
+  new_addr_type input_addr =  0xffff8fffffffffff;
 };
 
 class pim_core_cluster : public simt_core_cluster {
@@ -274,13 +283,17 @@ class pim_core_config : public core_config {
     num_tiles = 1;
     tile_size_x = 256;
     tile_size_y = 256;
-    dac_count = 4;
+    adc_count = 4;
+    adc_precision;
+    dac_presicion;
+    row_activation_rate;
+
 
     program_latency = 10;
-    compute_latency = 10;
-    read_out_latency = 10;
+    integrate_latency = 10;
+    sample_latency = 500;
 
-    bit_precision = 4;
+    device_precision = 4;
     gpgpu_ctx = ctx; 
   }
 
@@ -295,12 +308,15 @@ class pim_core_config : public core_config {
   unsigned dac_count;
 
   unsigned program_latency;
-  unsigned compute_latency;
-  unsigned read_out_latency;
+  unsigned integrate_latency;
+  unsigned sample_latency;
 
   pim_data_type data_type;
 
-  unsigned bit_precision;
+  unsigned device_precision;
+  unsigned adc_precision;
+  unsigned dac_presicion;
+  unsigned row_activation_rate;
 
   unsigned byte_per_row();
   unsigned get_data_size();
@@ -325,68 +341,61 @@ class pim_memory_interface : public mem_fetch_interface {
   pim_core_cluster *m_cluster;
 };
 
-class pim_tile {
-  public:
-  pim_tile(pim_layer *layer, unsigned tid) {
-    m_tid = tid;
-    used_rows = 0;
-    used_columes = 0;
-    programmed_rows = 0;
-    program_latency_cycle = 0;
-    m_layer = layer;
-    sent_bytes = 0;
+class pim_tile : public pipelined_simd_unit {
+ public:
+  pim_tile(register_set *result_port, const shader_core_config *config,
+          shader_core_ctx *core, unsigned issue_reg_id)
+      : pipelined_simd_unit(result_port, config, 1024, core,
+                            issue_reg_id) {
+    m_name = "TILE";
     m_status = TILE_INITIATED;
+    m_tile_id = issue_reg_id;
+    used_rows = 0;
+    used_cols = 0;
     byte_per_row = 0;
-    compute_latency_cycle = 0;
-
-  }
-
-  bool program_in_progress() { 
-    return (m_status == TILE_ROW_PROGRAMMING);
-  }
-  void finish_programming_row() {
-    m_status = TILE_ROW_PROGRAMMED;
-    programmed_rows++;
-    m_program_buffer.clear();
-
-    // fetch next row
     sent_bytes = 0;
-  }
-  void set_tile_programmed() {
-    m_status = TILE_PROGRAMMED;
-    assert(program_queue.size() == 0);
-  }
-  void program_row() {
-    assert(program_queue.size() > 0);
-    // unsigned row = program_queue.front();
-    program_queue.pop_front();
-    program_latency_cycle = 10;
-    m_status = TILE_ROW_PROGRAMMING;
-  }
-  bool check_all_programmed() {
-    return (programmed_rows == used_rows);
-  }
-  bool tile_programmed() {
-    return (m_status == TILE_PROGRAMMED);
-  }
-  bool row_all_loaded() {
-    return (sent_bytes >= byte_per_row);
+    programmed_rows = 0;
+    done_activation = 0;
+    total_activation = 0;
+
+    sampling = false;
+    computing = false;
   }
 
+  virtual bool can_issue(const warp_inst_t &inst) const {
+    if (inst.op == TILE_SAMPLE_OP) {
+      return !sampling;
+    } else if (inst.op == TILE_COMPUTE_OP) {
+      return !computing;
+    } 
+
+    return pipelined_simd_unit::can_issue(inst);
+  }
+
+  virtual void cycle() {
+    if (!m_pipeline_reg[0]->empty()) {
+      if (m_pipeline_reg[0]->op == TILE_SAMPLE_OP) {
+        sampling = false;
+      } else if (m_pipeline_reg[0]->op == TILE_COMPUTE_OP) {
+        computing = false;
+      }
+    }
+    pipelined_simd_unit::cycle();
+  }
+  virtual void active_lanes_in_pipeline();
+  virtual void issue(register_set &source_reg);
+  bool is_issue_partitioned() { return false; }
   tile_status m_status;
-  unsigned m_tid;
-  std::list<unsigned> program_queue;
-  unsigned program_latency_cycle;
-  unsigned used_rows;
-  unsigned used_columes;
-  unsigned programmed_rows;
-  pim_layer *m_layer;
-  std::set<mem_fetch *> m_program_buffer;
-  unsigned sent_bytes;
+  unsigned used_rows, used_cols;
+  unsigned m_tile_id;
   unsigned byte_per_row;
-  std::set<mem_fetch *> m_input_buffer;
-  unsigned compute_latency_cycle;
+  unsigned sent_bytes;
+  unsigned programmed_rows;
+  unsigned done_activation;
+  unsigned total_activation;
 
+  bool sampling;
+  bool computing;
 };
 
 
