@@ -39,30 +39,31 @@ pim_core_ctx::pim_core_ctx(class gpgpu_sim *gpu,
     m_memory_config = mem_config;
     m_icnt = new pim_memory_interface(this, m_cluster);
     m_pim_core_config = new pim_core_config(NULL);
-    m_layer = new pim_layer();
+    // m_layer = new pim_layer();
     m_L1D = new l1_cache("L1D", gpu->getShaderCoreConfig()->m_L1D_config, shader_id,
                          get_shader_normal_cache_id(), m_icnt,
                          m_mem_fetch_allocator, IN_L1D_MISS_QUEUE, gpu);
     m_mem_fetch_allocator = new shader_core_mem_fetch_allocator(m_sid, m_tpc, m_memory_config);
-    m_layer->N = 1;
-    m_layer->C = 3;
-    m_layer->H = 224;
-    m_layer->W = 224;
-    m_layer->K = 64;
-    m_layer->P = 112;
-    m_layer->Q = 112;
-    m_layer->R = 7;
-    m_layer->S = 7;
-    m_layer->pad_h = 3;
-    m_layer->pad_w = 3;
-    m_layer->stride_h = 2;
-    m_layer->stride_w = 2;
-    m_layer->dilation_h = 1;
-    m_layer->dilation_w = 1;
-    m_layer->group = 1;
+    // m_layer->N = 1;
+    // m_layer->C = 3;
+    // m_layer->H = 224;
+    // m_layer->W = 224;
+    // m_layer->K = 64;
+    // m_layer->P = 112;
+    // m_layer->Q = 112;
+    // m_layer->R = 7;
+    // m_layer->S = 7;
+    // m_layer->pad_h = 3;
+    // m_layer->pad_w = 3;
+    // m_layer->stride_h = 2;
+    // m_layer->stride_w = 2;
+    // m_layer->dilation_h = 1;
+    // m_layer->dilation_w = 1;
+    // m_layer->group = 1;
 
     sent_bytes = 0;
-    layer_mapped = false;
+    used_tiles = 0;
+    full = false;
 
     unsigned total_pipeline_stages = 1;
     for (unsigned j = 0; j < m_pim_core_config->num_tiles; j++) {
@@ -81,13 +82,13 @@ pim_core_ctx::pim_core_ctx(class gpgpu_sim *gpu,
     assert(m_pim_core_config->byte_per_row() % mf_size == 0);
     m_pending_loads.resize(m_pim_core_config->num_tiles, 0);
 
-    m_tiles[0]->used_rows = m_layer->R * m_layer->C;
-    m_tiles[0]->used_cols =
-        m_layer->S * m_layer->K * m_pim_core_config->bit_precision / 8;
-    m_tiles[0]->byte_per_row = m_layer->R * m_layer->K;
-    m_tiles[0]->total_activation = m_layer->P * m_layer->Q;
+    // m_tiles[0]->used_rows = m_layer->R * m_layer->C;
+    // m_tiles[0]->used_cols =
+    //     m_layer->S * m_layer->K * m_pim_core_config->device_precision / 8;
+    // m_tiles[0]->byte_per_row = m_layer->R * m_layer->K;
+    // m_tiles[0]->total_activation = m_layer->P * m_layer->Q;
 
-    m_tiles[0]->m_status = TILE_PROGRAMMED;
+    // m_tiles[0]->m_status = TILE_PROGRAMMED;
 }
 
 void pim_core_ctx::warp_exit(unsigned warp_id) {
@@ -196,7 +197,8 @@ void pim_core_ctx::issue() {
     } else if (tile->m_status == TILE_PROGRAMMED) {
       // load activations
       printf("tile %u programmed, load activations %u\n", tile->m_tile_id, cycle);
-      unsigned bytes_to_load = m_pim_core_config->get_data_size() * tile->used_rows;
+      unsigned bytes_to_load =
+          m_pim_core_config->get_data_size_byte() * tile->used_rows;
       while (!m_icnt->full(mf_size, false)) {
         if (tile->sent_bytes >= bytes_to_load) {
           printf("tile %u issued all mf at TILE_PROGRAMMED, %u\n", tile->m_tile_id, cycle);
@@ -236,7 +238,8 @@ void pim_core_ctx::issue() {
     } else if (tile->m_status == TILE_COMPUTING) {
       // load next activations
       printf("tile %u at TILE_COMPUTING, %u\n", tile->m_tile_id, cycle);
-      unsigned bytes_to_load = m_pim_core_config->get_data_size() * tile->used_rows;
+      unsigned bytes_to_load =
+          m_pim_core_config->get_data_size_byte() * tile->used_rows;
       while (!m_icnt->full(mf_size, false)) {
         if (tile->done_activation == tile->total_activation) {
           break;
@@ -328,122 +331,6 @@ void pim_core_ctx::commit() {
 
 }
 
-// void pim_core_ctx::program() {
-//   for (unsigned i = 0; i < m_pim_core_config->num_tiles; i++) {
-//     pim_tile *tile = m_tiles[i];
-
-//     if (tile->program_in_progress()) {
-//       if (tile->program_latency_cycle != 0) {
-//         tile->program_latency_cycle--;
-//         continue;
-//       } else {
-//         tile->finish_programming_row();
-
-//         if (tile->check_all_programmed()) {
-//           tile->set_tile_programmed();
-//         }
-//       }
-//     }
-
-//     // start programming
-//     if (tile->program_queue.size() != 0) {
-//       tile->program_row();
-//     }
-//   }
-// }
-
-// void pim_core_ctx::memory_cycle() {
-//   m_L1D->cycle();
-//   // load filters from memory hierarchy
-
-//   for (auto tile : m_tiles) {
-//     // if(tile->check_all_programmed()) {
-//     //   continue;
-//     // }
-
-//     if (tile->m_status == TILE_PROGRAMMED) {
-//       // load input
-//       new_addr_type addr = input_addr + 0;
-//       mem_fetch *mf = generate_mf(addr);
-//       std::list<cache_event> events;
-//       enum cache_request_status status = m_L1D->access(
-//           mf->get_addr(), mf, m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle,
-//           events);
-//       if (status == RESERVATION_FAIL) {
-//         continue;
-//       }
-//       if (status != HIT) {
-//         m_loads.insert(std::make_pair(mf, tile->m_tid));
-//         tile->m_input_buffer.insert(mf);
-//       }
-//     } else if (tile->m_status == TILE_ROW_PROGRAMMED ||
-//                tile->m_status == TILE_INITIATED) {
-//       if (tile->row_all_loaded()) {
-//         continue;
-//       }
-//       new_addr_type addr = m_config->m_L1D_config.block_addr(
-//           weight_addr + tile->byte_per_row * tile->programmed_rows +
-//           tile->sent_bytes);
-//       mem_fetch *mf = generate_mf(addr);
-//       std::list<cache_event> events;
-//       enum cache_request_status status = m_L1D->access(
-//           mf->get_addr(), mf, m_gpu->gpu_sim_cycle + m_gpu->gpu_tot_sim_cycle,
-//           events);
-//       if (status == RESERVATION_FAIL) {
-//         continue;
-//       }
-//       if (status != HIT) {
-//         tile->m_program_buffer.insert(mf);
-//         m_loads.insert(std::make_pair(mf, tile->m_tid));
-//       }
-//       tile->sent_bytes += mf_size;
-//     }
-//   }
-//   handle_response_fifo();
-// }
-
-// void pim_core_ctx::compute() {
-//   for (auto tile : m_tiles) {
-//     if (tile->m_status == TILE_COMPUTING) {
-//       if (tile->compute_latency_cycle != 0) {
-//         tile->compute_latency_cycle--;
-//         continue;
-//       } else {
-
-//       }
-//     }
-
-//   }
-// }
-
-// void pim_core_ctx::read_out() {
-
-// }
-
-// void pim_core_ctx::handle_response_fifo() {
-//   // cycle response fifo from L2
-//   // fill mf into L1D
-//   // send to program queue if ready
-//   if (!m_response_fifo.empty()) {
-//     mem_fetch *mf = m_response_fifo.front();
-//     if (m_L1D->fill_port_free()) {
-//       m_L1D->fill(mf, m_gpu->gpu_sim_cycle +
-//                           m_gpu->gpu_tot_sim_cycle);
-//       unsigned tile_id = m_loads.at(mf);
-//       m_loads.erase(mf);
-//       if (mf->get_addr() >= m_config->m_L1D_config.block_addr(weight_addr) &&
-//           mf->get_addr() < m_config->m_L1D_config.block_addr(input_addr)) {
-//         process_program_buffer(tile_id, mf);
-//       } else if (mf->get_addr() >= m_config->m_L1D_config.block_addr(input_addr)) {
-//         process_input_buffer(tile_id, mf);
-//       }
-
-//       printf("received mf at addr %llx, data size = %u\n", mf->get_addr(), mf->get_data_size());
-//       m_response_fifo.pop_front();
-//     }
-//   }
-// }
-
 mem_fetch *pim_core_ctx::generate_mf(new_addr_type addr) {
   unsigned chunk = (addr & 127) / 32;
   mem_access_sector_mask_t sector_mask;
@@ -468,36 +355,6 @@ mem_fetch *pim_core_ctx::generate_mf(new_addr_type addr) {
 
   return mf;
 }
-
-// void pim_core_ctx::process_program_buffer(unsigned tile_id, mem_fetch *mf) {
-//   for (auto ld = m_tiles[tile_id]->m_program_buffer.begin();
-//        ld != m_tiles[tile_id]->m_program_buffer.end();) {
-//     if ((*ld)->get_addr() == mf->get_addr()) {
-//       ld = m_tiles[tile_id]->m_program_buffer.erase(ld);
-//     } else {
-//       ld++;
-//     }
-//   }
-
-//   if (m_tiles[tile_id]->m_program_buffer.empty()) {
-//           m_tiles[tile_id]->program_queue.push_back(0);
-//   }
-// }
-
-// void pim_core_ctx::process_input_buffer(unsigned tile_id, mem_fetch *mf) {
-//   for (auto ld = m_tiles[tile_id]->m_input_buffer.begin();
-//        ld != m_tiles[tile_id]->m_input_buffer.end();) {
-//     if ((*ld)->get_addr() == mf->get_addr()) {
-//       ld = m_tiles[tile_id]->m_input_buffer.erase(ld);
-//     } else {
-//       ld++;
-//     }
-//   }
-
-//   if (m_tiles[tile_id]->m_input_buffer.empty()) {
-//           // m_tiles[tile_id]->program_queue.push_back(0);
-//   }
-// }
 
 bool pim_core_ctx::response_buffer_full() const {
   return m_response_fifo.size() >= m_config->n_simt_ejection_buffer_size;
@@ -549,7 +406,7 @@ void pim_core_cluster::icnt_cycle() {
   }
 }
 
-unsigned pim_core_config::get_data_size() {
+unsigned pim_core_config::get_data_size_byte() {
   switch (data_type) {
     case INT8_TYPE:
       return 1;
@@ -568,8 +425,33 @@ unsigned pim_core_config::get_data_size() {
   }
 }
 
+unsigned pim_core_config::get_data_size_bit() {
+  switch (data_type) {
+    case INT8_TYPE:
+      return 8;
+    case FP16_TYPE:
+    case INT16_TYPE:
+      return 16;
+    case FP32_TYPE:
+    case INT32_TYPE:
+      return 32;
+    case FP64_TYPE:
+    case INT64_TYPE:
+      return 64;
+    default:
+      assert(0 && "Invalid data type");
+      return 0;
+  }
+}
+
 unsigned pim_core_config::byte_per_row() {
-  return get_data_size() * tile_size_x * bit_precision / 8;
+  return get_data_size_byte() * tile_size_x * num_device_per_weight();
+}
+
+unsigned pim_core_config::num_device_per_weight() {
+  unsigned devices = get_data_size_bit() / device_precision;
+  assert(devices > 0);
+  return devices;
 }
 
 int pim_core_ctx::test_res_bus(int latency) {
@@ -593,4 +475,100 @@ void pim_tile::issue(register_set &source_reg) {
     sampling = true;
   }
   simd_function_unit::issue(source_reg);
+}
+
+void pim_core_cluster::map_layer(pim_layer *layer) {
+  for (unsigned i = 0; i < m_config->n_pim_cores_per_cluster; i++) {
+    if (m_core[i]->can_issue_layer(layer)) {
+      if (layer->type == CONV2D) {
+        m_core[i]->map_layer_conv2d(layer);
+      }
+    }
+  }
+}
+
+pim_tile *pim_core_ctx::next_avail_tile() {
+  for (unsigned i = 0; i < m_pim_core_config->num_tiles; i++) {
+    if (!m_tiles[i]->mapped) {
+      return m_tiles[i];
+    }
+  }
+  assert(0 && "PIM core full\n");
+}
+
+
+void pim_core_ctx::map_layer_conv2d(pim_layer *layer) {
+  assert(layer->type == CONV2D);
+  // filter height * input channels
+  unsigned rows_total = layer->R * layer->C;
+  // filter width * output channels * num of device
+  unsigned cols_total =
+      layer->S * layer->K * m_pim_core_config->num_device_per_weight();
+
+  // round up
+  unsigned tile_row_used =
+      std::ceil((float)rows_total / m_pim_core_config->tile_size_y);
+  unsigned tile_col_used =
+      std::ceil((float)cols_total / m_pim_core_config->tile_size_x);
+  unsigned tile_needed = tile_row_used * tile_col_used;
+
+  unsigned mapped_rows = 0;
+  unsigned mapped_cols = 0;
+  for (unsigned i = 0; i < tile_needed; i++) {
+    pim_tile *tile = next_avail_tile();
+
+    if (cols_total - mapped_cols >= m_pim_core_config->tile_size_x) {
+      tile->used_cols = m_pim_core_config->tile_size_x;
+      mapped_cols += m_pim_core_config->tile_size_x;
+    } else {
+      tile->used_cols = cols_total - mapped_cols;
+      mapped_cols = cols_total;
+    }
+
+    if (rows_total - mapped_rows >= m_pim_core_config->tile_size_y) {
+      tile->used_rows = m_pim_core_config->tile_size_y;
+    } else {
+      tile->used_rows = rows_total - mapped_rows;
+    }
+
+    // reset cols counter if all cols are assigned and there are more rows
+    if (mapped_cols == cols_total) {
+      mapped_rows += tile->used_rows;
+      mapped_cols = 0;
+    }
+
+    tile->byte_per_row = tile->used_cols * m_pim_core_config->device_precision / 8;
+    tile->total_activation = layer->P * layer->Q;
+    tile->m_status = TILE_INITIATED;
+    tile->mapped = true;
+    tile->m_layer = layer;
+
+    used_tiles++;
+    if (used_tiles == m_pim_core_config->num_tiles) {
+      full = true;
+    }
+    m_running_layers.push_back(layer);
+  }
+
+  assert(mapped_rows == rows_total);
+}
+
+bool pim_core_ctx::can_issue_layer(pim_layer *layer) {
+  // rows_total = filter height * input channels
+  unsigned rows_total = layer->R * layer->C;
+  // cols_total = filter width * output channels * num device per weight
+  unsigned cols_total =
+      layer->S * layer->K * m_pim_core_config->num_device_per_weight();
+
+  unsigned tile_row_used =
+      std::ceil((float)rows_total / m_pim_core_config->tile_size_y);
+  unsigned tile_col_used =
+      std::ceil((float)cols_total / m_pim_core_config->tile_size_x);
+  unsigned tile_needed = tile_row_used * tile_col_used;
+
+  if (tile_needed + used_tiles > m_pim_core_config->num_tiles) {
+    return false;
+  } else {
+    return true;
+  }
 }

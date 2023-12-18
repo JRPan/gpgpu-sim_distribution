@@ -73,6 +73,13 @@ enum pim_data_type {
   NUM_DATA_TYPES
 };
 
+enum pim_layer_type {
+  CONV1D = 0,
+  CONV2D,
+  LINEAR,
+  NUM_LAYER_TYPES
+};
+
 enum tile_status {
   TILE_INITIATED,
   TILE_PROGRAM,
@@ -92,7 +99,9 @@ unsigned data_type_to_size(pim_data_type type);
 
 class pim_layer {
  public:
-  pim_layer() {};
+  pim_layer() {
+    mapped = false;
+  };
   unsigned N;
   unsigned C;
   unsigned H;
@@ -109,6 +118,9 @@ class pim_layer {
   unsigned dilation_h;
   unsigned dilation_w;
   unsigned group;
+  unsigned mapped;
+
+  pim_layer_type type;
 };
 
 class pim_core_ctx : public core_t {
@@ -130,16 +142,6 @@ class pim_core_ctx : public core_t {
   // void cache_invalidate();
   // void accept_fetch_response(mem_fetch *mf);
   void accept_response(mem_fetch *mf);
-  // void broadcast_barrier_reduction(unsigned cta_id, unsigned bar_id,
-                                  //  warp_set_t warps);
-  // void set_kernel(kernel_info_t *k) {
-  //   assert(k);
-  //   m_kernel = k;
-  // }
-  void set_layer(pim_layer *layer) {
-    assert(layer);
-    m_layer = layer;
-  }
 
   void memory_cycle();
   void issue();
@@ -156,7 +158,6 @@ class pim_core_ctx : public core_t {
   std::vector<std::bitset<MAX_ALU_LATENCY> *> m_result_bus;
  protected:
   pim_core_config *m_pim_core_config;
-  pim_layer * m_layer;
 
  public:
   void inc_simt_to_mem(unsigned n_flits) {
@@ -164,7 +165,6 @@ class pim_core_ctx : public core_t {
   }
   PowerscalingCoefficients *scaling_coeffs;
   bool response_buffer_full() const;
-  pim_layer *get_layer() { return m_layer; }
   unsigned get_sid() const { return m_sid; }
 
   virtual void warp_exit(unsigned warp_id);
@@ -203,6 +203,10 @@ class pim_core_ctx : public core_t {
                                        unsigned *pc, unsigned *rpc) = 0;
   virtual const active_mask_t &get_active_mask(unsigned warp_id,
                                                const warp_inst_t *pI) = 0;
+  void map_layer_conv2d(pim_layer *layer);
+  bool can_issue_layer(pim_layer *layer);
+
+  pim_tile *next_avail_tile();
 
   unsigned long long m_last_inst_gpu_sim_cycle;
   unsigned long long m_last_inst_gpu_tot_sim_cycle;
@@ -224,9 +228,11 @@ class pim_core_ctx : public core_t {
   shader_core_mem_fetch_allocator *m_mem_fetch_allocator;
 
   unsigned mf_size = 32;
+  std::vector<pim_layer *> m_running_layers;
  private:
   unsigned sent_bytes;
-  unsigned layer_mapped;
+  unsigned used_tiles;
+  bool full;
   
   l1_cache *m_L1D;
   std::list<mem_fetch *> m_response_fifo;
@@ -240,12 +246,16 @@ class pim_core_ctx : public core_t {
 class pim_core_cluster : public simt_core_cluster {
  public:
   pim_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
-                    const shader_core_config *config,
-                    const memory_config *mem_config, shader_core_stats *stats,
-                    memory_stats_t *mstats) : simt_core_cluster(gpu, cluster_id, config, mem_config, stats, mstats) {};
+                   const shader_core_config *config,
+                   const memory_config *mem_config, shader_core_stats *stats,
+                   memory_stats_t *mstats)
+      : simt_core_cluster(gpu, cluster_id, config, mem_config, stats, mstats) {
+    full = false;
+  };
 
   void core_cycle();
   void icnt_cycle();
+  void map_layer(pim_layer *layer);
 
   // void reinit();
   // void cache_flush();
@@ -262,6 +272,7 @@ class pim_core_cluster : public simt_core_cluster {
   }
   gpgpu_sim *get_gpu() { return m_gpu; }
   // virtual void create_pim_core_ctx() = 0;
+  bool full;
 
 //  protected:
 //   unsigned m_cluster_id;
@@ -270,17 +281,13 @@ class pim_core_cluster : public simt_core_cluster {
 //   shader_core_stats *m_stats;
 //   memory_stats_t *m_memory_stats;
   pim_core_ctx **m_core;
-//   const memory_config *m_mem_config;
-
-//   unsigned m_cta_issue_next_core;
-//   std::list<unsigned> m_core_sim_order;
   std::list<mem_fetch *> m_response_fifo;
 };
 
 class pim_core_config : public core_config {
  public:
   pim_core_config(gpgpu_context *ctx) : core_config(ctx) {
-    num_tiles = 1;
+    num_tiles = 1024;
     tile_size_x = 256;
     tile_size_y = 256;
     adc_count = 4;
@@ -305,7 +312,7 @@ class pim_core_config : public core_config {
   unsigned num_tiles;
   unsigned tile_size_x;
   unsigned tile_size_y;
-  unsigned dac_count;
+  unsigned adc_count;
 
   unsigned program_latency;
   unsigned integrate_latency;
@@ -319,7 +326,9 @@ class pim_core_config : public core_config {
   unsigned row_activation_rate;
 
   unsigned byte_per_row();
-  unsigned get_data_size();
+  unsigned get_data_size_byte();
+  unsigned get_data_size_bit();
+  unsigned num_device_per_weight();
 };
 
 class pim_memory_interface : public mem_fetch_interface {
@@ -360,6 +369,7 @@ class pim_tile : public pipelined_simd_unit {
 
     sampling = false;
     computing = false;
+    mapped = false;
   }
 
   virtual bool can_issue(const warp_inst_t &inst) const {
@@ -393,9 +403,11 @@ class pim_tile : public pipelined_simd_unit {
   unsigned programmed_rows;
   unsigned done_activation;
   unsigned total_activation;
+  pim_layer *m_layer;
 
   bool sampling;
   bool computing;
+  bool mapped;
 };
 
 

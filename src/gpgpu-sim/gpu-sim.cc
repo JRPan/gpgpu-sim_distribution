@@ -802,30 +802,21 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
   assert(n < m_running_kernels.size());
 }
 
-void gpgpu_sim::launch_pim(kernel_info_t *kinfo) {
-  // unsigned cta_size = kinfo->threads_per_cta();
-  // if (cta_size > m_shader_config->n_thread_per_shader) {
-  //   printf(
-  //       "Execution error: Shader kernel CTA (block) size is too large for "
-  //       "microarch config.\n");
-  //   printf("                 CTA size (x*y*z) = %u, max supported = %u\n",
-  //          cta_size, m_shader_config->n_thread_per_shader);
-  //   printf(
-  //       "                 => either change -gpgpu_shader argument in "
-  //       "gpgpusim.config file or\n");
-  //   printf(
-  //       "                 modify the CUDA source to decrease the kernel block "
-  //       "size.\n");
-  //   abort();
-  // }
-  unsigned n = 0;
-  for (n = 0; n < m_running_pims.size(); n++) {
-    if ((NULL == m_running_pims[n]) || m_running_pims[n]->done()) {
-      m_running_pims[n] = kinfo;
-      break;
+void gpgpu_sim::launch_pim(std::vector<pim_layer *> layers) {
+  m_running_pims = layers;
+
+  if (m_running_pims.size() > 0) {
+    pim_active = true;
+  }
+
+  // map layers
+  for (auto layer : m_running_pims) {
+    for (unsigned i = 0; i < m_shader_config->n_pim_clusters; i++) {
+      if (!m_pim_cluster[i]->full) {
+        m_pim_cluster[i]->map_layer(layer);
+      }
     }
   }
-  assert(n < m_running_pims.size());
 }
 
 bool gpgpu_sim::can_start_kernel() {
@@ -858,13 +849,6 @@ bool gpgpu_sim::get_more_cta_left() const {
 
   for (unsigned n = 0; n < m_running_kernels.size(); n++) {
     if (m_running_kernels[n] && !m_running_kernels[n]->no_more_ctas_to_run()) {
-      more_cta = true;
-      break;
-    }
-  }
-
-  for (unsigned n = 0; n < m_running_pims.size(); n++) {
-    if (m_running_pims[n] && !m_running_pims[n]->no_more_ctas_to_run()) {
       more_cta = true;
       break;
     }
@@ -1022,7 +1006,6 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
           "GPGPU-Sim uArch: performance model initialization complete.\n");
 
   m_running_kernels.resize(config.max_concurrent_kernel, NULL);
-  m_running_pims.resize(config.max_concurrent_kernel, NULL);
   m_last_issued_kernel = 0;
   m_last_cluster_issue = m_shader_config->n_simt_clusters -
                          1;  // this causes first launch to use simt cluster 0

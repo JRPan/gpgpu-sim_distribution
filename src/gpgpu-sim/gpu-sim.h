@@ -523,7 +523,7 @@ class gpgpu_sim : public gpgpu_t {
   void set_prop(struct cudaDeviceProp *prop);
 
   void launch(kernel_info_t *kinfo);
-  void launch_pim(kernel_info_t *kinfo);
+  void launch_pim(std::vector<pim_layer *> layers);
   bool can_start_kernel();
   unsigned finished_kernel();
   void set_kernel_done(kernel_info_t *kernel);
@@ -629,7 +629,7 @@ class gpgpu_sim : public gpgpu_t {
   class memory_sub_partition **m_memory_sub_partition;
 
   std::vector<kernel_info_t *> m_running_kernels;
-  std::vector<kernel_info_t *> m_running_pims;
+  std::vector<pim_layer *> m_running_pims;
   unsigned m_last_issued_kernel;
 
   std::list<unsigned> m_finished_kernel;
