@@ -45,6 +45,7 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include <unordered_map>
 
 #include "../abstract_hardware_model.h"
 #include "delayqueue.h"
@@ -55,6 +56,7 @@
 #include "stack.h"
 #include "stats.h"
 #include "shader.h"
+#include "pim_icnt_wrapper.h"
 
 class pim_tile;
 
@@ -94,13 +96,33 @@ enum tile_status {
   TILE_NUM_STATUS
 };
 class pim_core_config;
+class pim_core_stats;
 
 unsigned data_type_to_size(pim_data_type type);
 
 class pim_layer {
  public:
   pim_layer() {
+    N = 0;
+    C = 0;
+    H = 0;
+    W = 0;
+    K = 0;
+    P = 0;
+    Q = 0;
+    R = 0;
+    S = 0;
+    pad_h = 0;
+    pad_w = 0;
+    stride_h = 0;
+    stride_w = 0;
+    dilation_h = 0;
+    dilation_w = 0;
+    group = 0;
     mapped = false;
+    start_addr = 0xffff7fffffffffff;
+    input_ready = false;
+    next_layer = NULL;
   };
   unsigned N;
   unsigned C;
@@ -119,17 +141,21 @@ class pim_layer {
   unsigned dilation_w;
   unsigned group;
   unsigned mapped;
-
+  new_addr_type start_addr;
   pim_layer_type type;
+  bool input_ready;
+  pim_layer *next_layer;
+  unsigned m_layer_id;
 };
 
 class pim_core_ctx : public core_t {
  public:
   // creator:
   pim_core_ctx(class gpgpu_sim *gpu, class pim_core_cluster *cluster,
-                  unsigned shader_id, unsigned tpc_id,
-                  const shader_core_config *config,
-                  const memory_config *mem_config, shader_core_stats *stats);
+               unsigned shader_id, unsigned tpc_id,
+               const shader_core_config *config,
+               const memory_config *mem_config, shader_core_stats *stats,
+               pim_core_config *pim_config, pim_core_stats *pim_stats);
 
   // used by pim_core_cluster:
   // modifiers
@@ -156,6 +182,7 @@ class pim_core_ctx : public core_t {
   static const unsigned MAX_ALU_LATENCY = 512;
   unsigned num_result_bus;
   std::vector<std::bitset<MAX_ALU_LATENCY> *> m_result_bus;
+  pim_core_config *get_pim_core_config() { return m_pim_core_config; }
  protected:
   pim_core_config *m_pim_core_config;
 
@@ -223,6 +250,7 @@ class pim_core_ctx : public core_t {
 
   // statistics
   shader_core_stats *m_stats;
+  pim_core_stats *m_pim_stats;
 
   // interconnect interface
   shader_core_mem_fetch_allocator *m_mem_fetch_allocator;
@@ -232,15 +260,18 @@ class pim_core_ctx : public core_t {
  private:
   unsigned sent_bytes;
   unsigned used_tiles;
-  bool full;
+  bool core_full;
   
   l1_cache *m_L1D;
   std::list<mem_fetch *> m_response_fifo;
   std::vector<unsigned> m_pending_loads;
   std::unordered_map<mem_fetch *, unsigned> m_loads;
   std::vector<pim_tile *> m_tiles;
+  std::vector<scratchpad *> m_scratchpads;
   new_addr_type weight_addr = 0xffff7fffffffffff;
   new_addr_type input_addr =  0xffff8fffffffffff;
+
+  std::unordered_map<pim_layer *, std::vector<unsigned>> m_layer_to_tiles;
 };
 
 class pim_core_cluster : public simt_core_cluster {
@@ -248,9 +279,11 @@ class pim_core_cluster : public simt_core_cluster {
   pim_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
                    const shader_core_config *config,
                    const memory_config *mem_config, shader_core_stats *stats,
-                   memory_stats_t *mstats)
+                   memory_stats_t *mstats, pim_core_config *pim_config, pim_core_stats *pim_stats)
       : simt_core_cluster(gpu, cluster_id, config, mem_config, stats, mstats) {
     full = false;
+    m_pim_config = pim_config;
+    m_pim_stats = pim_stats;
   };
 
   void core_cycle();
@@ -282,6 +315,9 @@ class pim_core_cluster : public simt_core_cluster {
 //   memory_stats_t *m_memory_stats;
   pim_core_ctx **m_core;
   std::list<mem_fetch *> m_response_fifo;
+
+  pim_core_config *m_pim_config;
+  pim_core_stats *m_pim_stats;
 };
 
 class pim_core_config : public core_config {
@@ -290,22 +326,29 @@ class pim_core_config : public core_config {
     num_tiles = 1024;
     tile_size_x = 256;
     tile_size_y = 256;
-    adc_count = 4;
-    adc_precision;
-    dac_presicion;
-    row_activation_rate;
-
+    adc_count = 2;
+    adc_precision = 4;
+    dac_precision = 1;
+    row_activation_rate = 4;
 
     program_latency = 10;
     integrate_latency = 10;
     sample_latency = 500;
 
     device_precision = 4;
+
+    num_scratchpads = 4;
+    scratchpad_size = 1024;
+  
     gpgpu_ctx = ctx; 
   }
 
   void init() {}
   void reg_options(class OptionParser *opp);
+  unsigned byte_per_row();
+  unsigned get_data_size_byte();
+  unsigned get_data_size_bit();
+  unsigned num_device_per_weight();
 
   gpgpu_context *gpgpu_ctx;
 
@@ -313,22 +356,17 @@ class pim_core_config : public core_config {
   unsigned tile_size_x;
   unsigned tile_size_y;
   unsigned adc_count;
-
   unsigned program_latency;
   unsigned integrate_latency;
   unsigned sample_latency;
-
   pim_data_type data_type;
-
   unsigned device_precision;
   unsigned adc_precision;
-  unsigned dac_presicion;
+  unsigned dac_precision;
   unsigned row_activation_rate;
+  unsigned num_scratchpads;
+  unsigned scratchpad_size;
 
-  unsigned byte_per_row();
-  unsigned get_data_size_byte();
-  unsigned get_data_size_bit();
-  unsigned num_device_per_weight();
 };
 
 class pim_memory_interface : public mem_fetch_interface {
@@ -350,11 +388,40 @@ class pim_memory_interface : public mem_fetch_interface {
   pim_core_cluster *m_cluster;
 };
 
+class tile_memory_interface : public mem_fetch_interface {
+ public:
+  tile_memory_interface(pim_core_ctx *core, pim_core_cluster *cluster, pim_tile *tile) {
+    m_core = core;
+    m_cluster = cluster;
+    m_tile = tile;
+  }
+  virtual bool full(unsigned size, bool write) const;
+  virtual void push(mem_fetch *mf);
+
+ private:
+  pim_core_ctx *m_core;
+  pim_core_cluster *m_cluster;
+  pim_tile *m_tile;
+};
+
+class pseudo_tile_memory_interface : public tile_memory_interface {
+ public:
+  pseudo_tile_memory_interface(pim_core_ctx *core, pim_core_cluster *cluster,
+                               pim_tile *tile)
+      : tile_memory_interface(core, cluster, tile) {}
+  virtual bool full(unsigned size, bool write) const {
+    return false;
+  }
+  virtual void push(mem_fetch *mf) {
+
+  }
+};
+
 class pim_tile : public pipelined_simd_unit {
  public:
   pim_tile(register_set *result_port, const shader_core_config *config,
-          shader_core_ctx *core, unsigned issue_reg_id)
-      : pipelined_simd_unit(result_port, config, 1024, core,
+          pim_core_ctx *core, unsigned issue_reg_id)
+      : pipelined_simd_unit(result_port, config, 1024, NULL,
                             issue_reg_id) {
     m_name = "TILE";
     m_status = TILE_INITIATED;
@@ -366,10 +433,17 @@ class pim_tile : public pipelined_simd_unit {
     programmed_rows = 0;
     done_activation = 0;
     total_activation = 0;
+    sample_scale_factor = 1;
 
     sampling = false;
     computing = false;
     mapped = false;
+
+    m_core = core;
+    m_pim_config = core->get_pim_core_config();
+    m_gpu = m_core->get_gpu();
+
+    m_tile_interface = new pseudo_tile_memory_interface(m_core, m_core->m_cluster, this);
   }
 
   virtual bool can_issue(const warp_inst_t &inst) const {
@@ -395,6 +469,8 @@ class pim_tile : public pipelined_simd_unit {
   virtual void active_lanes_in_pipeline();
   virtual void issue(register_set &source_reg);
   bool is_issue_partitioned() { return false; }
+  bool tile_icnt_injection_buffer_full(unsigned size, bool write);
+  void tile_icnt_inject_request_packet(mem_fetch *mf);
   tile_status m_status;
   unsigned used_rows, used_cols;
   unsigned m_tile_id;
@@ -403,12 +479,48 @@ class pim_tile : public pipelined_simd_unit {
   unsigned programmed_rows;
   unsigned done_activation;
   unsigned total_activation;
+  unsigned sample_scale_factor;
   pim_layer *m_layer;
+  pim_core_ctx *m_core;
+  gpgpu_sim *m_gpu;
+  pim_core_config *m_pim_config;
+  tile_memory_interface *m_tile_interface;
 
   bool sampling;
   bool computing;
   bool mapped;
 };
 
+class controller {
+  
+};
+
+class pim_core_stats : public shader_core_stats {
+ public:
+  pim_core_stats(const pim_core_config *pim_config,
+                 const shader_core_config *shader_config)
+      : shader_core_stats(shader_config) {
+    m_pim_config = pim_config;
+    input_loads_sent.resize(m_pim_config->num_tiles, 0);
+    tile_device_used.resize(m_pim_config->num_tiles, 0);
+    tile_integrate_cycle.resize(m_pim_config->num_tiles, 0);
+    tile_program_cycle.resize(m_pim_config->num_tiles, 0);
+    tile_sample_cycle.resize(m_pim_config->num_tiles, 0);
+    tile_idle_cycle.resize(m_pim_config->num_tiles, 0);
+  }
+
+  void print(FILE *fout) const;
+
+  std::vector<unsigned> input_loads_sent;
+  std::vector<unsigned> tile_device_used;
+  std::vector<unsigned> tile_integrate_cycle;
+  std::vector<unsigned> tile_program_cycle;
+  std::vector<unsigned> tile_sample_cycle;
+  std::vector<unsigned> tile_idle_cycle;
+
+  const pim_core_config *m_pim_config;
+
+  friend class gpgpu_sim;
+};
 
 #endif

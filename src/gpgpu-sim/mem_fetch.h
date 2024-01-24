@@ -37,6 +37,7 @@ enum mf_type {
   READ_REQUEST = 0,
   WRITE_REQUEST,
   READ_REPLY,  // send to shader
+  TILE_TO_TILE,
   WRITE_ACK
 };
 

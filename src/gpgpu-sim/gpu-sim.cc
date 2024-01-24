@@ -764,18 +764,6 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
 
 /////////////////////////////////////////////////////////////////////////////
 
-void increment_x_then_y_then_z(dim3 &i, const dim3 &bound) {
-  i.x++;
-  if (i.x >= bound.x) {
-    i.x = 0;
-    i.y++;
-    if (i.y >= bound.y) {
-      i.y = 0;
-      if (i.z < bound.z) i.z++;
-    }
-  }
-}
-
 void gpgpu_sim::launch(kernel_info_t *kinfo) {
   unsigned cta_size = kinfo->threads_per_cta();
   if (cta_size > m_shader_config->n_thread_per_shader) {
@@ -803,18 +791,30 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
 }
 
 void gpgpu_sim::launch_pim(std::vector<pim_layer *> layers) {
+
   m_running_pims = layers;
 
   if (m_running_pims.size() > 0) {
     pim_active = true;
+    m_running_pims[0]->input_ready = true;
   }
+  unsigned n = 0;
 
   // map layers
-  for (auto layer : m_running_pims) {
+  for (unsigned id = 0; id < m_running_pims.size(); id++){
     for (unsigned i = 0; i < m_shader_config->n_pim_clusters; i++) {
       if (!m_pim_cluster[i]->full) {
-        m_pim_cluster[i]->map_layer(layer);
+        m_running_pims[id]->m_layer_id = id;
+        if (id != m_running_pims.size() - 1) {
+          m_running_pims[id]->next_layer = m_running_pims[id + 1];
+        }
+        m_pim_cluster[i]->map_layer(m_running_pims[id]);
+        n++;
       }
+    }
+    // debug - only running 3 layers
+    if ( n > 3) {
+      break;
     }
   }
 }
@@ -946,6 +946,8 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   gpgpu_ctx = ctx;
   m_shader_config = &m_config.m_shader_config;
   m_memory_config = &m_config.m_memory_config;
+  // TODO: make this const
+  m_pim_config = new pim_core_config(ctx);
   ctx->ptx_parser->set_ptx_warp_size(m_shader_config);
   ptx_file_line_stats_create_exposed_latency_tracker(m_config.num_shader());
 
@@ -957,6 +959,7 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   m_shader_stats = new shader_core_stats(m_shader_config);
   m_memory_stats = new memory_stats_t(m_config.num_shader(), m_shader_config,
                                       m_memory_config, this);
+  m_pim_stats = new pim_core_stats(m_pim_config, m_shader_config);
   average_pipeline_duty_cycle = (float *)malloc(sizeof(float));
   active_sms = (float *)malloc(sizeof(float));
   m_power_stats =
@@ -998,8 +1001,11 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   }
 
   icnt_wrapper_init();
+  pim_icnt_wrapper_init();
   icnt_create(m_shader_config->n_simt_clusters + m_shader_config->n_pim_clusters,
               m_memory_config->m_n_mem_sub_partition);
+  pim_icnt_create(m_shader_config->n_pim_clusters,
+                  1);
 
   time_vector_create(NUM_MEM_REQ_STAT);
   fprintf(stdout,
@@ -1110,6 +1116,7 @@ bool gpgpu_sim::active() {
     if (m_memory_partition_unit[i]->busy() > 0) return true;
   ;
   if (icnt_busy()) return true;
+  if (pim_icnt_busy()) return true;
   if (get_more_cta_left()) return true;
   if (pim_active) return true;
   return false;
@@ -1160,6 +1167,7 @@ void gpgpu_sim::init() {
   }
 
   if (g_network_mode) icnt_init();
+  if (g_pim_network_mode) pim_icnt_init();
 }
 
 void gpgpu_sim::update_stats() {
@@ -1558,6 +1566,9 @@ void gpgpu_sim::gpu_print_stat() {
 
   time_vector_print();
   fflush(stdout);
+
+  printf("\nPIM stats:\n");
+  m_pim_stats->print(stdout);
 
   clear_executed_kernel_info();
 }
@@ -2214,3 +2225,15 @@ const shader_core_config *gpgpu_sim::getShaderCoreConfig() {
 const memory_config *gpgpu_sim::getMemoryConfig() { return m_memory_config; }
 
 simt_core_cluster *gpgpu_sim::getSIMTCluster() { return *m_cluster; }
+
+void increment_x_then_y_then_z(dim3 &i, const dim3 &bound) {
+  i.x++;
+  if (i.x >= bound.x) {
+    i.x = 0;
+    i.y++;
+    if (i.y >= bound.y) {
+      i.y = 0;
+      if (i.z < bound.z) i.z++;
+    }
+  }
+}

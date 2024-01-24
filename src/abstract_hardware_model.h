@@ -1229,6 +1229,7 @@ class warp_inst_t : public inst_t {
   unsigned get_uid() const { return m_uid; }
   unsigned get_schd_id() const { return m_scheduler_id; }
   active_mask_t get_warp_active_mask() const { return m_warp_active_mask; }
+  unsigned long long get_issue_cycle() const { return issue_cycle; }
 
  protected:
   unsigned m_uid;
@@ -1357,6 +1358,7 @@ class core_t {
     return reduction_storage[ctaid][barid];
   }
   mem_fetch_interface *m_icnt;
+  mem_fetch_interface *m_tile_icnt;
 
  protected:
   class gpgpu_sim *m_gpu;

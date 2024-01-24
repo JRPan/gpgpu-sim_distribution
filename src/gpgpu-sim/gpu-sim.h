@@ -363,7 +363,7 @@ class gpgpu_sim_config : public power_config,
                          public gpgpu_functional_sim_config {
  public:
   gpgpu_sim_config(gpgpu_context *ctx)
-      : m_shader_config(ctx), m_memory_config(ctx) {
+      : m_shader_config(ctx), m_memory_config(ctx), m_pim_config(ctx){
     m_valid = false;
     gpgpu_ctx = ctx;
   }
@@ -419,6 +419,7 @@ class gpgpu_sim_config : public power_config,
   bool m_valid;
   shader_core_config m_shader_config;
   memory_config m_memory_config;
+  pim_core_config m_pim_config;
   // clock domains - frequency
   double core_freq;
   double icnt_freq;
@@ -657,10 +658,12 @@ class gpgpu_sim : public gpgpu_t {
   const struct cudaDeviceProp *m_cuda_properties;
   const shader_core_config *m_shader_config;
   const memory_config *m_memory_config;
+  pim_core_config *m_pim_config;
 
   // stats
   class shader_core_stats *m_shader_stats;
   class memory_stats_t *m_memory_stats;
+  class pim_core_stats *m_pim_stats;
   class power_stat_t *m_power_stats;
   class gpgpu_sim_wrapper *m_gpgpusim_wrapper;
   unsigned long long last_gpu_sim_insn;

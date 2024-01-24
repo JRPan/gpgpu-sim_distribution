@@ -35,7 +35,6 @@
 #include <utility>
 
 #include "local_interconnect.h"
-#include "mem_fetch.h"
 
 xbar_router::xbar_router(unsigned router_id, enum Interconnect_type m_type,
                          unsigned n_shader, unsigned n_mem,

@@ -1908,4 +1908,27 @@ class tex_cache : public cache_t {
   extra_mf_fields_lookup m_extra_mf_fields;
 };
 
+class scratchpad : public baseline_cache {
+  public:
+  scratchpad(const char *name, cache_config &config, int core_id, int type_id,
+             mem_fetch_interface *memport, mem_fetch_allocator *mfcreator,
+             enum mem_fetch_status status, unsigned size) : baseline_cache(name, config, core_id, type_id, memport, status) {
+
+  }
+  virtual enum cache_request_status access(new_addr_type addr, mem_fetch *mf,
+                                           unsigned time,
+                                           std::list<cache_event> &events) {
+    assert(0);
+    // for now
+                                           }
+
+ private:
+  std::list<mem_fetch *> m_data;
+  unsigned m_size;
+
+  
+  mem_fetch_allocator *mfcreator;
+
+};
+
 #endif

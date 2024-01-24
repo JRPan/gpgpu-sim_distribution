@@ -33,6 +33,7 @@
 #include <map>
 #include <queue>
 #include <vector>
+#include "mem_fetch.h"
 using namespace std;
 
 enum Interconnect_type { REQ_NET = 0, REPLY_NET = 1 };
