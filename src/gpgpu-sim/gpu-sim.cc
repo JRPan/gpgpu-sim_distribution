@@ -1568,7 +1568,7 @@ void gpgpu_sim::gpu_print_stat() {
   fflush(stdout);
 
   printf("\nPIM stats:\n");
-  m_pim_stats->print(stdout);
+  m_pim_stats->print(stdout, gpu_tot_sim_cycle + gpu_sim_cycle);
 
   clear_executed_kernel_info();
 }
