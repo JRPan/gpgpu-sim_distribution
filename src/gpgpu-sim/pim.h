@@ -59,7 +59,7 @@
 #include "shader.h"
 #include "pim_icnt_wrapper.h"
 
-class pim_tile;
+class pim_xbar;
 class simple_ldst_unit;
 class pim_core_config;
 class pim_core_stats;
@@ -87,19 +87,19 @@ enum pim_layer_type {
   NUM_LAYER_TYPES
 };
 
-enum tile_status {
-  TILE_INITIATED,
-  TILE_PROGRAM,
-  // TILE_LOAD_ROW_ISSUED,
-  // TILE_ROW_PROGRAMMING,
-  TILE_PROGRAMMED,
-  // TILE_LOAD_COL_ISSUED,
-  TILE_COMPUTING,
-  // TILE_STALL_SAMPLE,
-  // TILE_SAMPLE,
-  TILE_DONE,
-  TILE_IDLE,
-  TILE_NUM_STATUS
+enum xbar_status {
+  XBAR_INITIATED,
+  XBAR_PROGRAM,
+  // XBAR_LOAD_ROW_ISSUED,
+  // XBAR_ROW_PROGRAMMING,
+  XBAR_PROGRAMMED,
+  // XBAR_LOAD_COL_ISSUED,
+  XBAR_COMPUTING,
+  // XBAR_STALL_SAMPLE,
+  // XBAR_SAMPLE,
+  XBAR_DONE,
+  XBAR_IDLE,
+  XBAR_NUM_STATUS
 };
 
 class buffer {
@@ -242,7 +242,7 @@ class pim_core_ctx : public core_t {
   void memory_cycle();
   void issue();
   void control_cycle();
-  bool issue_load(new_addr_type addr, unsigned tile_id);
+  bool issue_load(new_addr_type addr, unsigned xbar_id);
   void execute();
   void commit();
   int test_res_bus(int latency);
@@ -302,7 +302,7 @@ class pim_core_ctx : public core_t {
   void map_layer_conv2d(pim_layer *layer);
   bool can_issue_layer(pim_layer *layer);
 
-  pim_tile *next_avail_tile();
+  pim_xbar *next_avail_xbar();
 
   unsigned long long m_last_inst_gpu_sim_cycle;
   unsigned long long m_last_inst_gpu_tot_sim_cycle;
@@ -329,19 +329,19 @@ class pim_core_ctx : public core_t {
   std::vector<pim_layer *> m_running_layers;
 //  private:
   unsigned sent_bytes;
-  unsigned used_tiles;
+  unsigned used_xbars;
   bool core_full;
   
   simple_ldst_unit *m_ldst_unit;
   std::list<mem_fetch *> m_response_fifo;
   unsigned m_pending_loads;
   std::unordered_map<mem_fetch *, unsigned> m_loads;
-  std::vector<pim_tile *> m_tiles;
+  std::vector<pim_xbar *> m_xbars;
   std::vector<scratchpad *> m_scratchpads;
   // new_addr_type weight_addr = 0xffff7fffffffffff;
   // new_addr_type input_addr =  0xffff8fffffffffff;
 
-  std::unordered_map<pim_layer *, std::vector<unsigned>> m_layer_to_tiles;
+  std::unordered_map<pim_layer *, std::vector<unsigned>> m_layer_to_xbars;
 };
 
 class pim_core_cluster : public simt_core_cluster {
@@ -392,9 +392,9 @@ class pim_core_cluster : public simt_core_cluster {
 class pim_core_config {
  public:
   pim_core_config(gpgpu_context *ctx) {
-    num_tiles = 1024;
-    tile_size_x = 256;
-    tile_size_y = 256;
+    num_xbars = 1024;
+    xbar_size_x = 256;
+    xbar_size_y = 256;
     adc_count = 2;
     adc_precision = 4;
     dac_precision = 1;
@@ -422,9 +422,9 @@ class pim_core_config {
 
   gpgpu_context *gpgpu_ctx;
 
-  unsigned num_tiles;
-  unsigned tile_size_x;
-  unsigned tile_size_y;
+  unsigned num_xbars;
+  unsigned xbar_size_x;
+  unsigned xbar_size_y;
   unsigned adc_count;
   unsigned program_latency;
   unsigned integrate_latency;
@@ -458,12 +458,12 @@ class pim_memory_interface : public mem_fetch_interface {
   pim_core_cluster *m_cluster;
 };
 
-// class tile_memory_interface : public mem_fetch_interface {
+// class xbar_memory_interface : public mem_fetch_interface {
 //  public:
-//   tile_memory_interface(pim_core_ctx *core, pim_core_cluster *cluster, pim_tile *tile) {
+//   xbar_memory_interface(pim_core_ctx *core, pim_core_cluster *cluster, pim_xbar *xbar) {
 //     m_core = core;
 //     m_cluster = cluster;
-//     m_tile = tile;
+//     m_xbar = xbar;
 //   }
 //   virtual bool full(unsigned size, bool write) const;
 //   virtual void push(mem_fetch *mf);
@@ -471,14 +471,14 @@ class pim_memory_interface : public mem_fetch_interface {
 //  private:
 //   pim_core_ctx *m_core;
 //   pim_core_cluster *m_cluster;
-//   pim_tile *m_tile;
+//   pim_xbar *m_xbar;
 // };
 
-// class pseudo_tile_memory_interface : public tile_memory_interface {
+// class pseudo_xbar_memory_interface : public xbar_memory_interface {
 //  public:
-//   pseudo_tile_memory_interface(pim_core_ctx *core, pim_core_cluster *cluster,
-//                                pim_tile *tile)
-//       : tile_memory_interface(core, cluster, tile) {}
+//   pseudo_xbar_memory_interface(pim_core_ctx *core, pim_core_cluster *cluster,
+//                                pim_xbar *xbar)
+//       : xbar_memory_interface(core, cluster, xbar) {}
 //   virtual bool full(unsigned size, bool write) const {
 //     return false;
 //   }
@@ -493,24 +493,24 @@ class pim_core_stats : public shader_core_stats {
                  const shader_core_config *shader_config)
       : shader_core_stats(shader_config) {
     m_pim_config = pim_config;
-    input_loads_sent.resize(m_pim_config->num_tiles, 0);
-    tile_device_used.resize(m_pim_config->num_tiles, 0);
-    tile_integrate_cycle.resize(m_pim_config->num_tiles, 0);
-    tile_program_cycle.resize(m_pim_config->num_tiles, 0);
-    tile_sample_cycle.resize(m_pim_config->num_tiles, 0);
-    tile_active_cycle.resize(m_pim_config->num_tiles, 0);
-    tile_program_efficiency.resize(m_pim_config->num_tiles, 0);
+    input_loads_sent.resize(m_pim_config->num_xbars, 0);
+    xbar_device_used.resize(m_pim_config->num_xbars, 0);
+    xbar_integrate_cycle.resize(m_pim_config->num_xbars, 0);
+    xbar_program_cycle.resize(m_pim_config->num_xbars, 0);
+    xbar_sample_cycle.resize(m_pim_config->num_xbars, 0);
+    xbar_active_cycle.resize(m_pim_config->num_xbars, 0);
+    xbar_program_efficiency.resize(m_pim_config->num_xbars, 0);
   }
 
   void print(FILE *fout, unsigned long long tot_cycle) const;
 
   std::vector<unsigned> input_loads_sent;
-  std::vector<unsigned> tile_device_used;
-  std::vector<unsigned> tile_integrate_cycle;
-  std::vector<unsigned> tile_program_cycle;
-  std::vector<unsigned> tile_sample_cycle;
-  std::vector<unsigned> tile_active_cycle;
-  std::vector<unsigned> tile_program_efficiency;
+  std::vector<unsigned> xbar_device_used;
+  std::vector<unsigned> xbar_integrate_cycle;
+  std::vector<unsigned> xbar_program_cycle;
+  std::vector<unsigned> xbar_sample_cycle;
+  std::vector<unsigned> xbar_active_cycle;
+  std::vector<unsigned> xbar_program_efficiency;
 
   const pim_core_config *m_pim_config;
 
@@ -521,9 +521,9 @@ class pim_core_stats : public shader_core_stats {
 #define PROGRAM_REG 1
 #define COMPUTE_REG 2
 #define SAMPLE_REG 3
-class pim_tile : public simd_function_unit {
+class pim_xbar : public simd_function_unit {
  public:
-  pim_tile(register_set *result_port, const shader_core_config *config,
+  pim_xbar(register_set *result_port, const shader_core_config *config,
           pim_core_ctx *core, unsigned issue_reg_id)
       : simd_function_unit(config) {
     m_result_port = result_port;
@@ -535,9 +535,9 @@ class pim_tile : public simd_function_unit {
     m_core = core;
     m_issue_reg_id = issue_reg_id;
 
-    m_name = "TILE";
-    m_status = TILE_INITIATED;
-    m_tile_id = issue_reg_id;
+    m_name = "XBAR";
+    m_status = XBAR_INITIATED;
+    m_xbar_id = issue_reg_id;
     used_rows = 0;
     used_cols = 0;
     byte_per_row = 0;
@@ -565,7 +565,7 @@ class pim_tile : public simd_function_unit {
     input = buffer();
     output = buffer();
 
-    // m_tile_interface = new pseudo_tile_memory_interface(m_core, m_core->m_cluster, this);
+    // m_xbar_interface = new pseudo_xbar_memory_interface(m_core, m_core->m_cluster, this);
   }
 
 
@@ -580,9 +580,9 @@ class pim_tile : public simd_function_unit {
       return false;
     }
     
-    if (inst.op == TILE_SAMPLE_OP) {
+    if (inst.op == XBAR_SAMPLE_OP) {
       return !(sampling || computing);
-    } else if (inst.op == TILE_COMPUTE_OP) {
+    } else if (inst.op == XBAR_COMPUTE_OP) {
       return !computing;
     } 
 
@@ -591,11 +591,11 @@ class pim_tile : public simd_function_unit {
 
   virtual void cycle() {
     if (!m_pipeline_reg[0]->empty()) {
-      if (m_pipeline_reg[0]->op == TILE_SAMPLE_OP) {
+      if (m_pipeline_reg[0]->op == XBAR_SAMPLE_OP) {
         sampling = false;
-      } else if (m_pipeline_reg[0]->op == TILE_COMPUTE_OP) {
+      } else if (m_pipeline_reg[0]->op == XBAR_COMPUTE_OP) {
         computing = false;
-      } else if (m_pipeline_reg[0]->op == TILE_PROGRAM_OP) {
+      } else if (m_pipeline_reg[0]->op == XBAR_PROGRAM_OP) {
         programming = false;
       }
 
@@ -608,7 +608,7 @@ class pim_tile : public simd_function_unit {
              m_pipeline_reg[SAMPLE_REG]->empty() && m_dispatch_reg->empty());
       if (m_program_latency > 0) {
         m_program_latency--;
-        m_core->m_pim_stats->tile_program_cycle[m_tile_id]++;
+        m_core->m_pim_stats->xbar_program_cycle[m_xbar_id]++;
         cycled = true;
       } else {
         move_warp(m_pipeline_reg[0], m_pipeline_reg[PROGRAM_REG]);
@@ -619,7 +619,7 @@ class pim_tile : public simd_function_unit {
       assert(m_pipeline_reg[PROGRAM_REG]->empty());
       if (m_compute_latency > 0) {
         m_compute_latency--;
-        m_core->m_pim_stats->tile_integrate_cycle[m_tile_id]++;
+        m_core->m_pim_stats->xbar_integrate_cycle[m_xbar_id]++;
         cycled = true;
       } else {
         move_warp(m_pipeline_reg[0], m_pipeline_reg[COMPUTE_REG]);
@@ -630,7 +630,7 @@ class pim_tile : public simd_function_unit {
       assert(m_pipeline_reg[PROGRAM_REG]->empty());
       if (m_sample_latency > 0) {
         m_sample_latency--;
-        m_core->m_pim_stats->tile_sample_cycle[m_tile_id]++;
+        m_core->m_pim_stats->xbar_sample_cycle[m_xbar_id]++;
         cycled = true;
       } else {
         move_warp(m_pipeline_reg[0], m_pipeline_reg[SAMPLE_REG]);
@@ -638,21 +638,21 @@ class pim_tile : public simd_function_unit {
     }
 
     if (cycled) {
-      m_core->m_pim_stats->tile_active_cycle[m_tile_id]++;
+      m_core->m_pim_stats->xbar_active_cycle[m_xbar_id]++;
     }
 
     if (!m_dispatch_reg->empty()) {
-      if (m_dispatch_reg->op == TILE_PROGRAM_OP) {
+      if (m_dispatch_reg->op == XBAR_PROGRAM_OP) {
         if (m_pipeline_reg[PROGRAM_REG]->empty()) {
           m_program_latency = m_dispatch_reg->latency;
           move_warp(m_pipeline_reg[PROGRAM_REG], m_dispatch_reg);
         }
-      } else if (m_dispatch_reg->op == TILE_COMPUTE_OP) {
+      } else if (m_dispatch_reg->op == XBAR_COMPUTE_OP) {
         if (m_pipeline_reg[COMPUTE_REG]->empty()) {
           m_compute_latency = m_dispatch_reg->latency;
           move_warp(m_pipeline_reg[COMPUTE_REG], m_dispatch_reg);
         }
-      } else if (m_dispatch_reg->op == TILE_SAMPLE_OP) {
+      } else if (m_dispatch_reg->op == XBAR_SAMPLE_OP) {
         if (m_pipeline_reg[SAMPLE_REG]->empty()) {
           m_sample_latency = m_dispatch_reg->latency;
           move_warp(m_pipeline_reg[SAMPLE_REG], m_dispatch_reg);
@@ -665,8 +665,8 @@ class pim_tile : public simd_function_unit {
   virtual void active_lanes_in_pipeline();
   virtual void issue(register_set &source_reg);
   bool is_issue_partitioned() { return false; }
-  // bool tile_icnt_injection_buffer_full(unsigned size, bool write);
-  // void tile_icnt_inject_request_packet(mem_fetch *mf);
+  // bool xbar_icnt_injection_buffer_full(unsigned size, bool write);
+  // void xbar_icnt_inject_request_packet(mem_fetch *mf);
   unsigned get_used_devices() {
     return used_rows * used_cols;
   }
@@ -679,9 +679,9 @@ class pim_tile : public simd_function_unit {
   unsigned m_compute_latency;
   unsigned m_sample_latency;
 
-  tile_status m_status;
+  xbar_status m_status;
   unsigned used_rows, used_cols;
-  unsigned m_tile_id;
+  unsigned m_xbar_id;
   unsigned byte_per_row;
   unsigned sent_bytes;
   unsigned programmed_rows;
@@ -692,7 +692,7 @@ class pim_tile : public simd_function_unit {
   pim_core_ctx *m_core;
   gpgpu_sim *m_gpu;
   pim_core_config *m_pim_config;
-  // tile_memory_interface *m_tile_interface;
+  // xbar_memory_interface *m_xbar_interface;
   buffer weight;
   buffer input;
   buffer output;

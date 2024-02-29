@@ -135,9 +135,9 @@ enum uarch_op_t {
   SPECIALIZED_UNIT_6_OP,
   SPECIALIZED_UNIT_7_OP,
   SPECIALIZED_UNIT_8_OP,
-  TILE_PROGRAM_OP, 
-  TILE_COMPUTE_OP,
-  TILE_SAMPLE_OP
+  XBAR_PROGRAM_OP, 
+  XBAR_COMPUTE_OP,
+  XBAR_SAMPLE_OP
 };
 typedef enum uarch_op_t op_type;
 
@@ -1069,7 +1069,7 @@ class warp_inst_t : public inst_t {
     m_is_depbar = false;
 
     m_depbar_group_no = 0;
-    pim_tile_id = -1;
+    pim_xbar_id = -1;
   }
   warp_inst_t(const core_config *config) {
     m_uid = 0;
@@ -1090,7 +1090,7 @@ class warp_inst_t : public inst_t {
     m_is_depbar = false;
 
     m_depbar_group_no = 0;
-    pim_tile_id = -1;
+    pim_xbar_id = -1;
   }
   virtual ~warp_inst_t() {}
 
@@ -1284,7 +1284,7 @@ class warp_inst_t : public inst_t {
   bool m_is_depbar;
 
   unsigned int m_depbar_group_no;
-  unsigned pim_tile_id;
+  unsigned pim_xbar_id;
 };
 
 void move_warp(warp_inst_t *&dst, warp_inst_t *&src);
@@ -1364,7 +1364,7 @@ class core_t {
     return reduction_storage[ctaid][barid];
   }
   mem_fetch_interface *m_icnt;
-  mem_fetch_interface *m_tile_icnt;
+  mem_fetch_interface *m_xbar_icnt;
 
  protected:
   class gpgpu_sim *m_gpu;
