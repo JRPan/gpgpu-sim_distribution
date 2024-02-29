@@ -176,7 +176,7 @@ void xbar_router::RR_Advance() {
 // IEEE/ACM transactions on networking 2 (1999): 188-201.
 // https://www.cs.rutgers.edu/~sn624/552-F18/papers/islip.pdf
 void xbar_router::iSLIP_Advance() {
-  vector<unsigned> node_tmp;
+  set<unsigned> destination_set;
   bool active = false;
 
   unsigned conflict_sub = 0;
@@ -185,21 +185,15 @@ void xbar_router::iSLIP_Advance() {
   // calcaulte how many conflicts are there for stats
   // prebuild a set than contains only the nodes that have packets
   std::set<unsigned> node_set;
-  std::set<unsigned> destination_set; // a set with output_nodes as destination
   for (unsigned i = 0; i < total_nodes; ++i) {
     if (!in_buffers[i].empty()) {
       node_set.insert(i);
-      destination_set.insert(in_buffers[i].front().output_deviceID);
       Packet _packet_tmp = in_buffers[i].front();
-      if (!node_tmp.empty()) {
-        if (std::find(node_tmp.begin(), node_tmp.end(),
-                      _packet_tmp.output_deviceID) != node_tmp.end()) {
-          conflict_sub++;
-        } else {
-          node_tmp.push_back(_packet_tmp.output_deviceID);
-        }
+      if (destination_set.find(_packet_tmp.output_deviceID) !=
+          destination_set.end()) {
+        conflict_sub++;
       } else {
-        node_tmp.push_back(_packet_tmp.output_deviceID);
+        destination_set.insert(_packet_tmp.output_deviceID);
       }
       active = true;
     }

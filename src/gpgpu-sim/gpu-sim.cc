@@ -1023,6 +1023,8 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   // Jin: functional simulation for CDP
   m_functional_sim = false;
   m_functional_sim_kernel = NULL;
+  pim_active = false;
+  pim_addr = 0xffff7fffffffffff;
 }
 
 int gpgpu_sim::shared_mem_size() const {
@@ -1096,6 +1098,7 @@ void gpgpu_sim::reinit_clock_domains(void) {
 }
 
 bool gpgpu_sim::active() {
+  if (pim_active) return true;
   if (m_config.gpu_max_cycle_opt &&
       (gpu_tot_sim_cycle + gpu_sim_cycle) >= m_config.gpu_max_cycle_opt)
     return false;
@@ -1118,7 +1121,6 @@ bool gpgpu_sim::active() {
   if (icnt_busy()) return true;
   if (pim_icnt_busy()) return true;
   if (get_more_cta_left()) return true;
-  if (pim_active) return true;
   return false;
 }
 
@@ -1995,10 +1997,10 @@ void gpgpu_sim::cycle() {
     // L1 cache + shader core pipeline stages
     m_power_stats->pwr_mem_stat->core_cache_stats[CURRENT_STAT_IDX].clear();
     for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
-      if (m_cluster[i]->get_not_completed() || get_more_cta_left()) {
-        m_cluster[i]->core_cycle();
-        *active_sms += m_cluster[i]->get_n_active_sms();
-      }
+      // if (m_cluster[i]->get_not_completed() || get_more_cta_left()) {
+      //   m_cluster[i]->core_cycle();
+      //   *active_sms += m_cluster[i]->get_n_active_sms();
+      // }
       // Update core icnt/cache stats for AccelWattch
       if (m_config.g_power_simulation_enabled) {
       m_cluster[i]->get_icnt_stats(
@@ -2045,22 +2047,23 @@ void gpgpu_sim::cycle() {
     }
 #endif
 
-    issue_block2core();
+    // issue_block2core();
     decrement_kernel_latency();
 
     // Depending on configuration, invalidate the caches once all of threads are
     // completed.
     int all_threads_complete = 1;
     if (m_config.gpgpu_flush_l1_cache) {
-      for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
-        if (m_cluster[i]->get_not_completed() == 0)
-          m_cluster[i]->cache_invalidate();
-        else
-          all_threads_complete = 0;
-      }
+      // for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
+      //   if (m_cluster[i]->get_not_completed() == 0)
+      //     m_cluster[i]->cache_invalidate();
+      //   else
+      //     all_threads_complete = 0;
+      // }
     }
 
-    if (m_config.gpgpu_flush_l2_cache) {
+    if (m_config.gpgpu_flush_l2_cache &&
+        (m_shader_config->n_pim_clusters == 0)) {
       if (!m_config.gpgpu_flush_l1_cache) {
         for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++) {
           if (m_cluster[i]->get_not_completed() != 0) {

@@ -1069,6 +1069,7 @@ class warp_inst_t : public inst_t {
     m_is_depbar = false;
 
     m_depbar_group_no = 0;
+    pim_tile_id = -1;
   }
   warp_inst_t(const core_config *config) {
     m_uid = 0;
@@ -1089,6 +1090,7 @@ class warp_inst_t : public inst_t {
     m_is_depbar = false;
 
     m_depbar_group_no = 0;
+    pim_tile_id = -1;
   }
   virtual ~warp_inst_t() {}
 
@@ -1217,6 +1219,9 @@ class warp_inst_t : public inst_t {
   unsigned accessq_count() const { return m_accessq.size(); }
   const mem_access_t &accessq_back() { return m_accessq.back(); }
   void accessq_pop_back() { m_accessq.pop_back(); }
+  void accessq_push_back(const mem_access_t &access) {
+    m_accessq.push_back(access);
+  }
 
   bool dispatch_delay() {
     if (cycles > 0) cycles--;
@@ -1279,6 +1284,7 @@ class warp_inst_t : public inst_t {
   bool m_is_depbar;
 
   unsigned int m_depbar_group_no;
+  unsigned pim_tile_id;
 };
 
 void move_warp(warp_inst_t *&dst, warp_inst_t *&src);
