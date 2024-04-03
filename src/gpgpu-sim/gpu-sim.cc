@@ -814,6 +814,7 @@ void gpgpu_sim::launch_pim(std::vector<pim_layer *> layers) {
     }
     // debug - only running 3 layers
     if ( n > 3) {
+      m_running_pims[3]->next_layer = NULL;
       break;
     }
   }
@@ -972,6 +973,7 @@ gpgpu_sim::gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx)
   gpu_completed_cta = 0;
   m_total_cta_launched = 0;
   gpu_deadlock = false;
+  done_pim_pass = 0;
 
   gpu_stall_dramfull = 0;
   gpu_stall_icnt2sh = 0;

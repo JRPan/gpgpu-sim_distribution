@@ -3081,6 +3081,18 @@ void gpgpu_sim::shader_print_cache_stats(FILE *fout) const {
 
       total_css += css;
     }
+    for (unsigned i = 0; i < m_shader_config->n_pim_clusters; i++) {
+      m_pim_cluster[i]->get_L1D_sub_stats(css);
+
+      fprintf(stdout,
+              "\tL1D_cache_core[%d]: Access = %llu, Miss = %llu, Miss_rate = "
+              "%.3lf, Pending_hits = %llu, Reservation_fails = %llu\n",
+              i + m_shader_config->n_simt_clusters, css.accesses, css.misses,
+              (double)css.misses / (double)css.accesses, css.pending_hits,
+              css.res_fails);
+
+      total_css += css;
+    }
     fprintf(fout, "\tL1D_total_cache_accesses = %llu\n", total_css.accesses);
     fprintf(fout, "\tL1D_total_cache_misses = %llu\n", total_css.misses);
     if (total_css.accesses > 0) {

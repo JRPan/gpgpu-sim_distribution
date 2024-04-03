@@ -142,6 +142,7 @@ class pim_layer {
     mapped = false;
     input_ready = false;
     next_layer = NULL;
+    m_layer_id = -1;
   };
   ~pim_layer() {}
   // void im2col(float *input, float *&output, int N, int C, int H, int W,
@@ -216,6 +217,7 @@ class pim_layer {
   unsigned m_layer_id;
   new_addr_type *input_addr;
   unsigned input_size;
+  std::queue<warp_inst_t *> inst_queue;
 };
 
 class pim_core_ctx : public core_t {
@@ -242,16 +244,18 @@ class pim_core_ctx : public core_t {
   void memory_cycle();
   void issue();
   void control_cycle();
-  bool issue_load(new_addr_type addr, unsigned xbar_id);
+  bool issue_mem(warp_inst_t *inst);
   void execute();
   void commit();
   int test_res_bus(int latency);
   void record_load_done(warp_inst_t *inst);
+  void create_exec_pipeline();
 
   static const unsigned MAX_ALU_LATENCY = 512;
   unsigned num_result_bus;
   std::vector<std::bitset<MAX_ALU_LATENCY> *> m_result_bus;
   pim_core_config *get_pim_core_config() { return m_pim_core_config; }
+  void get_L1D_sub_stats(struct cache_sub_stats &css) const;
  protected:
   pim_core_config *m_pim_core_config;
 
@@ -292,6 +296,7 @@ class pim_core_ctx : public core_t {
                                    gpgpu_t *gpu) = 0;
 
   virtual void create_shd_warp() = 0;
+  
 
   virtual const warp_inst_t *get_next_inst(unsigned warp_id,
                                            address_type pc) = 0;
@@ -337,6 +342,7 @@ class pim_core_ctx : public core_t {
   unsigned m_pending_loads;
   std::unordered_map<mem_fetch *, unsigned> m_loads;
   std::vector<pim_xbar *> m_xbars;
+  unsigned last_checked_xbar;
   std::vector<scratchpad *> m_scratchpads;
   // new_addr_type weight_addr = 0xffff7fffffffffff;
   // new_addr_type input_addr =  0xffff8fffffffffff;
@@ -366,6 +372,7 @@ class pim_core_cluster : public simt_core_cluster {
   // bool icnt_injection_buffer_full(unsigned size, bool write);
   // void icnt_inject_request_packet(class mem_fetch *mf);
 
+  void get_L1D_sub_stats(struct cache_sub_stats &css) const;
   // // for perfect memory interface
   bool response_queue_full() {
     return (m_response_fifo.size() >= m_config->n_simt_ejection_buffer_size);
@@ -495,22 +502,24 @@ class pim_core_stats : public shader_core_stats {
     m_pim_config = pim_config;
     input_loads_sent.resize(m_pim_config->num_xbars, 0);
     xbar_device_used.resize(m_pim_config->num_xbars, 0);
-    xbar_integrate_cycle.resize(m_pim_config->num_xbars, 0);
+    xbar_integrate_count.resize(m_pim_config->num_xbars, 0);
     xbar_program_cycle.resize(m_pim_config->num_xbars, 0);
     xbar_sample_cycle.resize(m_pim_config->num_xbars, 0);
     xbar_active_cycle.resize(m_pim_config->num_xbars, 0);
     xbar_program_efficiency.resize(m_pim_config->num_xbars, 0);
+    xbar_executed_inst.resize(m_pim_config->num_xbars, 0);
   }
 
   void print(FILE *fout, unsigned long long tot_cycle) const;
 
   std::vector<unsigned> input_loads_sent;
   std::vector<unsigned> xbar_device_used;
-  std::vector<unsigned> xbar_integrate_cycle;
+  std::vector<unsigned> xbar_integrate_count;
   std::vector<unsigned> xbar_program_cycle;
   std::vector<unsigned> xbar_sample_cycle;
   std::vector<unsigned> xbar_active_cycle;
   std::vector<unsigned> xbar_program_efficiency;
+  std::vector<unsigned> xbar_executed_inst;
 
   const pim_core_config *m_pim_config;
 
@@ -557,6 +566,8 @@ class pim_xbar : public simd_function_unit {
     m_program_latency = 0;
     m_compute_latency = 0;
     m_sample_latency = 0;
+    executed_inst = 0;
+    op_id = 0;
 
     m_core = core;
     m_pim_config = core->get_pim_core_config();
@@ -582,9 +593,13 @@ class pim_xbar : public simd_function_unit {
     
     if (inst.op == XBAR_SAMPLE_OP) {
       return !(sampling || computing);
-    } else if (inst.op == XBAR_COMPUTE_OP) {
+    } else if (inst.op == XBAR_INTEGRATE_OP) {
       return !computing;
     } 
+
+    if (inst.op == EXIT_OPS) {
+      return !(sampling || computing || programming);
+    }
 
     return true;
   }
@@ -593,7 +608,7 @@ class pim_xbar : public simd_function_unit {
     if (!m_pipeline_reg[0]->empty()) {
       if (m_pipeline_reg[0]->op == XBAR_SAMPLE_OP) {
         sampling = false;
-      } else if (m_pipeline_reg[0]->op == XBAR_COMPUTE_OP) {
+      } else if (m_pipeline_reg[0]->op == XBAR_INTEGRATE_OP) {
         computing = false;
       } else if (m_pipeline_reg[0]->op == XBAR_PROGRAM_OP) {
         programming = false;
@@ -608,7 +623,6 @@ class pim_xbar : public simd_function_unit {
              m_pipeline_reg[SAMPLE_REG]->empty() && m_dispatch_reg->empty());
       if (m_program_latency > 0) {
         m_program_latency--;
-        m_core->m_pim_stats->xbar_program_cycle[m_xbar_id]++;
         cycled = true;
       } else {
         move_warp(m_pipeline_reg[0], m_pipeline_reg[PROGRAM_REG]);
@@ -619,7 +633,6 @@ class pim_xbar : public simd_function_unit {
       assert(m_pipeline_reg[PROGRAM_REG]->empty());
       if (m_compute_latency > 0) {
         m_compute_latency--;
-        m_core->m_pim_stats->xbar_integrate_cycle[m_xbar_id]++;
         cycled = true;
       } else {
         move_warp(m_pipeline_reg[0], m_pipeline_reg[COMPUTE_REG]);
@@ -630,7 +643,6 @@ class pim_xbar : public simd_function_unit {
       assert(m_pipeline_reg[PROGRAM_REG]->empty());
       if (m_sample_latency > 0) {
         m_sample_latency--;
-        m_core->m_pim_stats->xbar_sample_cycle[m_xbar_id]++;
         cycled = true;
       } else {
         move_warp(m_pipeline_reg[0], m_pipeline_reg[SAMPLE_REG]);
@@ -647,8 +659,9 @@ class pim_xbar : public simd_function_unit {
           m_program_latency = m_dispatch_reg->latency;
           move_warp(m_pipeline_reg[PROGRAM_REG], m_dispatch_reg);
         }
-      } else if (m_dispatch_reg->op == XBAR_COMPUTE_OP) {
+      } else if (m_dispatch_reg->op == XBAR_INTEGRATE_OP) {
         if (m_pipeline_reg[COMPUTE_REG]->empty()) {
+          m_core->m_pim_stats->xbar_integrate_count[m_xbar_id]++;
           m_compute_latency = m_dispatch_reg->latency;
           move_warp(m_pipeline_reg[COMPUTE_REG], m_dispatch_reg);
         }
@@ -656,6 +669,10 @@ class pim_xbar : public simd_function_unit {
         if (m_pipeline_reg[SAMPLE_REG]->empty()) {
           m_sample_latency = m_dispatch_reg->latency;
           move_warp(m_pipeline_reg[SAMPLE_REG], m_dispatch_reg);
+        }
+      } else if (m_dispatch_reg->op == EXIT_OPS) {
+        if (m_pipeline_reg[0]->empty()) {
+          move_warp(m_pipeline_reg[0], m_dispatch_reg);
         }
       }
     }
@@ -688,6 +705,10 @@ class pim_xbar : public simd_function_unit {
   unsigned done_activation;
   unsigned total_activation;
   unsigned sample_scale_factor;
+  unsigned executed_inst;
+  unsigned op_id;
+  unsigned xbar_row_id;
+  unsigned xbar_col_id;
   pim_layer *m_layer;
   pim_core_ctx *m_core;
   gpgpu_sim *m_gpu;
@@ -699,7 +720,10 @@ class pim_xbar : public simd_function_unit {
   std::vector<unsigned> m_op_pending_loads;
   std::queue<new_addr_type> m_load_queue;
   std::unordered_map<new_addr_type, std::set<unsigned>> addr_to_op;
-  std::list<warp_inst_t *> op_queue;
+  std::queue<warp_inst_t *> inst_queue;
+
+  std::deque<new_addr_type> regs_order;
+  std::set<new_addr_type> regs_value;
 
   bool sampling;
   bool computing;

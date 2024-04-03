@@ -136,7 +136,7 @@ enum uarch_op_t {
   SPECIALIZED_UNIT_7_OP,
   SPECIALIZED_UNIT_8_OP,
   XBAR_PROGRAM_OP, 
-  XBAR_COMPUTE_OP,
+  XBAR_INTEGRATE_OP,
   XBAR_SAMPLE_OP
 };
 typedef enum uarch_op_t op_type;
@@ -950,6 +950,7 @@ class inst_t {
     sp_op = OTHER_OP;
     op_pipe = UNKOWN_OP;
     mem_op = NOT_TEX;
+    memory_op = no_memory_op;
     const_cache_operand = 0;
     num_operands = 0;
     num_regs = 0;

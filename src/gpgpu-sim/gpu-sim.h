@@ -688,6 +688,7 @@ class gpgpu_sim : public gpgpu_t {
  public:
   bool pim_active;
   new_addr_type pim_addr;
+  unsigned done_pim_pass;
   unsigned long long gpu_sim_insn;
   unsigned long long gpu_tot_sim_insn;
   unsigned long long gpu_sim_insn_last_update;
