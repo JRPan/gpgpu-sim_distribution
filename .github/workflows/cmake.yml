@@ -1,6 +1,5 @@
-# This is a basic workflow to help you get started with Actions
-
-name: Short-Tests
+# Workflow with cmake build system
+name: Short-Tests-CMake
 
 # Controls when the workflow will run
 on:
@@ -25,7 +24,7 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
       - name: Run Simulation
-        run: /bin/bash $GITHUB_WORKSPACE/short-tests.sh
+        run: /bin/bash $GITHUB_WORKSPACE/short-tests-cmake.sh
 
   build-TITANV-LOCALXBAR:
     runs-on: ubuntu-latest
@@ -39,7 +38,7 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
       - name: Run Simulation
-        run: /bin/bash $GITHUB_WORKSPACE/short-tests.sh
+        run: /bin/bash $GITHUB_WORKSPACE/short-tests-cmake.sh
 
   build-QV100:
     runs-on: ubuntu-latest
@@ -53,7 +52,7 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
       - name: Run Simulation
-        run: /bin/bash $GITHUB_WORKSPACE/short-tests.sh
+        run: /bin/bash $GITHUB_WORKSPACE/short-tests-cmake.sh
 
   build-2060:
     runs-on: ubuntu-latest
@@ -67,7 +66,7 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
       - name: Run Simulation
-        run: /bin/bash $GITHUB_WORKSPACE/short-tests.sh
+        run: /bin/bash $GITHUB_WORKSPACE/short-tests-cmake.sh
 
   build-3070:
     runs-on: ubuntu-latest
@@ -81,4 +80,4 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v4
       - name: Run Simulation
-        run: /bin/bash $GITHUB_WORKSPACE/short-tests.sh
+        run: /bin/bash $GITHUB_WORKSPACE/short-tests-cmake.sh
