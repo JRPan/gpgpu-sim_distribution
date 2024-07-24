@@ -1,25 +1,28 @@
 # Exclude power_interface.cc if no power model
-list(APPEND gpgpusim_SRC addrdec.cc
-    dram.cc
-    dram_sched.cc
-    gpu-cache.cc
-    gpu-misc.cc
-    gpu-sim.cc
-    hashing.cc
-    histogram.cc
-    icnt_wrapper.cc
-    l2cache.cc
-    local_interconnect.cc
-    mem_fetch.cc
-    mem_latency_stat.cc
-    power_interface.cc
-    power_stat.cc
-    scoreboard.cc
-    shader.cc
-    stack.cc
-    stat-tool.cc
-    traffic_breakdown.cc
-    visualizer.cc)
+# list(APPEND gpgpusim_SRC addrdec.cc
+#     dram.cc
+#     dram_sched.cc
+#     gpu-cache.cc
+#     gpu-misc.cc
+#     gpu-sim.cc
+#     hashing.cc
+#     histogram.cc
+#     icnt_wrapper.cc
+#     l2cache.cc
+#     local_interconnect.cc
+#     mem_fetch.cc
+#     mem_latency_stat.cc
+#     power_interface.cc
+#     power_stat.cc
+#     scoreboard.cc
+#     shader.cc
+#     stack.cc
+#     stat-tool.cc
+#     traffic_breakdown.cc
+#     visualizer.cc)
+
+FILE(GLOB gpgpusim_SRC *.cc)
+
 if(NOT GPGPUSIM_USE_POWER_MODEL)
     list(REMOVE_ITEM ${gpgpusim_SRC} power_interface.cc)
 endif()

@@ -92,6 +92,7 @@ tr1_hash_map<new_addr_type, unsigned> address_random_interleaving;
 #define L2 0x02
 #define DRAM 0x04
 #define ICNT 0x08
+#define PIM 0x10
 
 #define MEM_LATENCY_STAT_IMPL
 
@@ -792,30 +793,21 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
 
 void gpgpu_sim::launch_pim(std::vector<pim_layer *> layers) {
 
-  m_running_pims = layers;
-
-  if (m_running_pims.size() > 0) {
-    pim_active = true;
-    m_running_pims[0]->input_ready = true;
-  }
+  // if (layers.size() > 0) {
+  //   pim_active = true;
+  // }
   unsigned n = 0;
 
   // map layers
-  for (unsigned id = 0; id < m_running_pims.size(); id++){
+  for (auto layer : layers){
+    if (layer->type == INPUT) {
+      m_activate_layers.insert(layer);
+    }
     for (unsigned i = 0; i < m_shader_config->n_pim_clusters; i++) {
       if (!m_pim_cluster[i]->full) {
-        m_running_pims[id]->m_layer_id = id;
-        if (id != m_running_pims.size() - 1) {
-          m_running_pims[id]->next_layer = m_running_pims[id + 1];
-        }
-        m_pim_cluster[i]->map_layer(m_running_pims[id]);
+        m_pim_cluster[i]->map_layer(layer);
         n++;
       }
-    }
-    // debug - only running 3 layers
-    if ( n > 3) {
-      m_running_pims[3]->next_layer = NULL;
-      break;
     }
   }
 }
@@ -1082,14 +1074,17 @@ void gpgpu_sim_config::init_clock_domains(void) {
   icnt_freq = icnt_freq MhZ;
   l2_freq = l2_freq MhZ;
   dram_freq = dram_freq MhZ;
+  pim_freq = 1000 MhZ;
   core_period = 1 / core_freq;
   icnt_period = 1 / icnt_freq;
   dram_period = 1 / dram_freq;
   l2_period = 1 / l2_freq;
+  pim_period = 1 / pim_freq;
   printf("GPGPU-Sim uArch: clock freqs: %lf:%lf:%lf:%lf\n", core_freq,
          icnt_freq, l2_freq, dram_freq);
   printf("GPGPU-Sim uArch: clock periods: %.20lf:%.20lf:%.20lf:%.20lf\n",
          core_period, icnt_period, l2_period, dram_period);
+  printf("GPGPU-Sim uArch: pim domain: %lf:%.20lf\n", pim_freq, pim_period);
 }
 
 void gpgpu_sim::reinit_clock_domains(void) {
@@ -1097,6 +1092,7 @@ void gpgpu_sim::reinit_clock_domains(void) {
   dram_time = 0;
   icnt_time = 0;
   l2_time = 0;
+  pim_time = 0;
 }
 
 bool gpgpu_sim::active() {
@@ -1461,6 +1457,9 @@ void gpgpu_sim::gpu_print_stat() {
   core_cache_stats.clear();
   for (unsigned i = 0; i < m_config.num_cluster(); i++) {
     m_cluster[i]->get_cache_stats(core_cache_stats);
+  }
+  for (unsigned i = 0; i < m_config.num_pim_cluster(); i++) {
+    m_pim_cluster[i]->get_cache_stats(core_cache_stats);
   }
   printf("\nTotal_core_cache_stats:\n");
   core_cache_stats.print_stats(stdout, "Total_core_cache_stats_breakdown");
@@ -1869,6 +1868,7 @@ void dram_t::dram_log(int task) {
 // Find next clock domain and increment its time
 int gpgpu_sim::next_clock_domain(void) {
   double smallest = min3(core_time, icnt_time, dram_time);
+  smallest = std::min(smallest, pim_time);
   int mask = 0x00;
   if (l2_time <= smallest) {
     smallest = l2_time;
@@ -1886,6 +1886,10 @@ int gpgpu_sim::next_clock_domain(void) {
   if (core_time <= smallest) {
     mask |= CORE;
     core_time += m_config.core_period;
+  }
+  if (pim_time <= smallest) {
+    mask |= PIM;
+    pim_time += m_config.pim_period;
   }
   return mask;
 }
@@ -1909,12 +1913,21 @@ void gpgpu_sim::cycle() {
   int clock_mask = next_clock_domain();
 
   if (clock_mask & CORE) {
-    // shader core loading (pop from ICNT into core) follows CORE clock
-    for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++)
-      m_cluster[i]->icnt_cycle();
     for (unsigned i = 0; i < m_shader_config->n_pim_clusters; i++)
       m_pim_cluster[i]->icnt_cycle();
   }
+
+  if (clock_mask & CORE) {
+    // shader core loading (pop from ICNT into core) follows CORE clock
+    for (unsigned i = 0; i < m_shader_config->n_simt_clusters; i++)
+      m_cluster[i]->icnt_cycle();
+  }
+
+  if (clock_mask & CORE) {
+    for (unsigned i = 0; i < m_shader_config->n_pim_clusters; i++)
+      m_pim_cluster[i]->ldst_cycle();
+  }
+
   unsigned partiton_replys_in_parallel_per_cycle = 0;
   if (clock_mask & ICNT) {
     // pop from memory controller to interconnect
@@ -1995,6 +2008,109 @@ void gpgpu_sim::cycle() {
     icnt_transfer();
   }
 
+  if (clock_mask & PIM) {
+    for (unsigned i = 0; i < m_shader_config->n_pim_clusters; i++) {
+      m_pim_cluster[i]->core_cycle();
+    }
+  }
+
+  if (clock_mask & CORE) {
+    unsigned cycle = gpu_sim_cycle + gpu_tot_sim_cycle;
+    for (auto layer : m_activate_layers) {
+      printf("activating layer %s @ cycle %u\n", layer->name.c_str(), cycle);
+      layer->pending_next = layer->next_layers.size();
+      layer->issued_next.clear();
+      assert(layer->active == false);
+      layer->active = true;
+
+      if (layer->type == OUTPUT) {
+        pim_active = false;
+        break;  // finished
+      }
+      // passthrough
+      if (layer->mapped) {
+        // point input to next batch of input
+        unsigned input_size = layer->input_size;
+        unsigned output_size = layer->output_size;
+
+        new_addr_type input_addr = pim_addr;
+        layer->input_addr = input_addr;
+        pim_addr += input_size;
+        new_addr_type output_addr = pim_addr;
+        pim_addr += output_size;
+
+        perf_memcpy_to_gpu(input_addr, input_size);
+
+        // recalculate im2col
+        layer->im2col(input_addr);
+        layer->output_addr = output_addr;
+
+        for (auto xbar : layer->m_xbars) {
+          assert(xbar->inst_queue.size() == 0);
+
+          xbar->active = true;
+          xbar->op_id = xbar->used_rows * xbar->xbar_row_id;
+          xbar->done_activation = 0;
+
+          if (xbar->programmed_rows != 0) {
+            assert(xbar->programmed_rows == xbar->used_rows);
+            xbar->m_status = XBAR_PROGRAMMED;
+          }
+          xbar->m_status = XBAR_PROGRAMMED;
+        }
+      } else {
+        m_finished_layers.insert(layer);
+      }
+    }
+    m_activate_layers.clear();
+
+    std::set<pim_layer *> to_erase;
+    for (auto layer : m_finished_layers) {
+      for (auto next_layer : layer->next_layers) {
+        if (next_layer->active) {
+          break;  // can't issue next layer
+        }
+
+        bool next_layer_avail = true;
+        for (auto next_layer_dep : next_layer->prev_layers) {
+          if (m_finished_layers.find(next_layer_dep) == m_finished_layers.end()) {
+            next_layer_avail = false;
+            break;
+          }
+        }
+
+        if (!next_layer_avail) {
+          break;  // can't issue next layer
+        }
+
+        if (layer->issued_next.find(next_layer) == layer->issued_next.end()) {
+          m_activate_layers.insert(next_layer);
+          layer->issued_next.insert(next_layer);
+        }
+      }
+
+      if (layer->issued_next.size() == layer->next_layers.size()) {
+        printf("finishing layer %s @ cycle %u\n", layer->name.c_str(), cycle);
+        to_erase.insert(layer);
+        layer->active = false;
+        print_stats();
+
+        if (layer->type == INPUT) {
+          m_activate_layers.insert(layer);
+        }
+      }
+    }
+
+    for (auto layer : to_erase) {
+      // printf("removing layer %s\n", layer->name.c_str());
+      m_finished_layers.erase(layer);
+    }
+
+    for (unsigned i = 0; i < m_shader_config->n_pim_clusters; i++) {
+      m_pim_cluster[i]->core_control_cycle();
+    }
+  }
+
   if (clock_mask & CORE) {
     // L1 cache + shader core pipeline stages
     m_power_stats->pwr_mem_stat->core_cache_stats[CURRENT_STAT_IDX].clear();
@@ -2016,9 +2132,6 @@ void gpgpu_sim::cycle() {
           gpu_occupancy.aggregate_theoretical_warp_slots);
     }
 
-    for (unsigned i = 0; i < m_shader_config->n_pim_clusters; i++) {
-      m_pim_cluster[i]->core_cycle();
-    }
 
     float temp = 0;
     for (unsigned i = 0; i < m_shader_config->num_shader(); i++) {

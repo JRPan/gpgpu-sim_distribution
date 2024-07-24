@@ -133,9 +133,9 @@ struct power_config {
 
     // NOTE: After changing the nonlinear model to only scaling idle core,
     // NOTE: The min_inc_per_active_sm is not used any more
-    if (g_use_nonlinear_model)
-      sscanf(gpu_nonlinear_model_config, "%lf:%lf", &gpu_idle_core_power,
-             &gpu_min_inc_per_active_sm);
+    // if (g_use_nonlinear_model)
+    //   sscanf(gpu_nonlinear_model_config, "%lf:%lf", &gpu_idle_core_power,
+    //          &gpu_min_inc_per_active_sm);
   }
   void reg_options(class OptionParser *opp);
 
@@ -399,6 +399,7 @@ class gpgpu_sim_config : public power_config,
   unsigned get_core_freq() const { return core_freq; }
   unsigned num_shader() const { return m_shader_config.num_shader(); }
   unsigned num_cluster() const { return m_shader_config.n_simt_clusters; }
+  unsigned num_pim_cluster() const { return m_shader_config.n_pim_clusters; }
   unsigned get_max_concurrent_kernel() const { return max_concurrent_kernel; }
   unsigned checkpoint_option;
 
@@ -425,10 +426,12 @@ class gpgpu_sim_config : public power_config,
   double icnt_freq;
   double dram_freq;
   double l2_freq;
+  double pim_freq;
   double core_period;
   double icnt_period;
   double dram_period;
   double l2_period;
+  double pim_period;
 
   // GPGPU-Sim timing model options
   unsigned long long gpu_max_cycle_opt;
@@ -648,6 +651,7 @@ class gpgpu_sim : public gpgpu_t {
   double icnt_time;
   double dram_time;
   double l2_time;
+  double pim_time;
 
   // debug
   bool gpu_deadlock;
@@ -695,6 +699,9 @@ class gpgpu_sim : public gpgpu_t {
   unsigned gpu_sim_insn_last_update_sid;
   occupancy_stats gpu_occupancy;
   occupancy_stats gpu_tot_occupancy;
+
+  std::set<pim_layer *> m_activate_layers;
+  std::set<pim_layer *> m_finished_layers;
 
   // performance counter for stalls due to congestion.
   unsigned int gpu_stall_dramfull;

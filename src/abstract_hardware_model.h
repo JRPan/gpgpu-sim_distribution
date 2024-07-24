@@ -137,7 +137,8 @@ enum uarch_op_t {
   SPECIALIZED_UNIT_8_OP,
   XBAR_PROGRAM_OP, 
   XBAR_INTEGRATE_OP,
-  XBAR_SAMPLE_OP
+  XBAR_SAMPLE_OP, 
+  PSEUDO_LD_OP
 };
 typedef enum uarch_op_t op_type;
 
@@ -954,10 +955,12 @@ class inst_t {
     const_cache_operand = 0;
     num_operands = 0;
     num_regs = 0;
-    memset(out, 0, sizeof(unsigned));
-    memset(in, 0, sizeof(unsigned));
+    memset(out, 0, sizeof(unsigned) * 8);
+    memset(in, 0, sizeof(unsigned) * 24);
     is_vectorin = 0;
     is_vectorout = 0;
+    incount = 0;
+    outcount = 0;
     space = memory_space_t();
     cache_op = CACHE_UNDEFINED;
     latency = 1;
@@ -1286,6 +1289,7 @@ class warp_inst_t : public inst_t {
 
   unsigned int m_depbar_group_no;
   unsigned pim_xbar_id;
+  std::vector<unsigned> m_multicast_xbars;
 };
 
 void move_warp(warp_inst_t *&dst, warp_inst_t *&src);

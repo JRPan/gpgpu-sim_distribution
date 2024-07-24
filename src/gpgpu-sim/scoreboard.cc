@@ -84,8 +84,8 @@ void Scoreboard::reserveRegisters(const class warp_inst_t* inst) {
   for (unsigned r = 0; r < MAX_OUTPUT_VALUES; r++) {
     if (inst->out[r] > 0) {
       reserveRegister(inst->warp_id(), inst->out[r]);
-      SHADER_DPRINTF(SCOREBOARD, "Reserved register - warp:%d, reg: %d\n",
-                     inst->warp_id(), inst->out[r]);
+      // SHADER_DPRINTF(SCOREBOARD, "Reserved register - warp:%d, reg: %d\n",
+      //                inst->warp_id(), inst->out[r]);
     }
   }
 
@@ -110,8 +110,8 @@ void Scoreboard::reserveRegisters(const class warp_inst_t* inst) {
 void Scoreboard::releaseRegisters(const class warp_inst_t* inst) {
   for (unsigned r = 0; r < MAX_OUTPUT_VALUES; r++) {
     if (inst->out[r] > 0) {
-      SHADER_DPRINTF(SCOREBOARD, "Register Released - warp:%d, reg: %d\n",
-                     inst->warp_id(), inst->out[r]);
+      // SHADER_DPRINTF(SCOREBOARD, "Register Released - warp:%d, reg: %d\n",
+      //                inst->warp_id(), inst->out[r]);
       releaseRegister(inst->warp_id(), inst->out[r]);
       longopregs[inst->warp_id()].erase(inst->out[r]);
     }

@@ -2411,6 +2411,17 @@ class shader_core_ctx : public core_t {
   void inc_simt_to_mem(unsigned n_flits) {
     m_stats->n_simt_to_mem[m_sid] += n_flits;
   }
+
+  void resize_shd_warp(unsigned num) {
+    for (unsigned k = 0; k < m_warp.size(); ++k) {
+      delete m_warp[k];
+  }
+    m_warp.resize(num);
+    for (unsigned k = 0; k < m_warp.size(); ++k) {
+      m_warp[k] = new shd_warp_t(this, m_config->warp_size);
+    }
+    
+  }
   bool check_if_non_released_reduction_barrier(warp_inst_t &inst);
 
  protected:

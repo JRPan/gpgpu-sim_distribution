@@ -80,9 +80,15 @@ enum pim_data_type {
 };
 
 enum pim_layer_type {
-  CONV1D = 0,
-  CONV2D,
+  CONV = 1,
+  CONV2D, // to be removed
   LINEAR,
+  INPUT,
+  RELU,
+  MAXPOOL,
+  ADD,
+  GLOBAL_AVG_POOL,
+  OUTPUT,
   UNDEFINED,
   NUM_LAYER_TYPES
 };
@@ -137,12 +143,11 @@ class pim_layer {
     dilation_w = 0;
     group = 0;
     data_size = 0;
-    input_addr = NULL;
     input_size = 0;
+    output_addr = 0;
     mapped = false;
-    input_ready = false;
-    next_layer = NULL;
-    m_layer_id = -1;
+    pending_next = 0;
+    active = false;
   };
   ~pim_layer() {}
   // void im2col(float *input, float *&output, int N, int C, int H, int W,
@@ -154,9 +159,13 @@ class pim_layer {
     int new_width = (W + 2 * pad_w - S) / stride_w + 1;
     assert(new_width == (int)Q);
 
-    new_addr_type *output =
-        new new_addr_type[N * new_height * new_width * C * R * S];
-    new_addr_type *input = new new_addr_type[N * C * H * W];
+    // new_addr_type *output =
+    //     new new_addr_type[N * new_height * new_width * C * R * S];
+    // new_addr_type *input = new new_addr_type[N * C * H * W];
+    std::vector<new_addr_type> output;
+    output.resize(N * new_height * new_width * C * R * S);
+    std::vector<new_addr_type> input;
+    input.resize(N * C * H * W);
     for (unsigned i = 0; i < N * C * H * W; ++i) {
       // instead of data, save addr
       input[i] = addr + i;
@@ -180,19 +189,22 @@ class pim_layer {
                 } else {
                   output[out_index] = 0;
                 }
-                // printf("output[%d] = %llx\n", out_index, output[out_index]);
+                // printf("%-8llu ", output[out_index]);
               }
+              // printf("\n");
             }
+            // printf("\n");
           }
+          // printf("\n");
         }
       }
     }
-    input_addr = output;
+    matmul_addr = output;
     input_size = N * new_height * new_width * C * R * S;
-    delete[] input;
   }
 
 
+  std::string name;
   unsigned N;
   unsigned C;
   unsigned H;
@@ -212,12 +224,18 @@ class pim_layer {
   unsigned mapped;
   unsigned data_size;
   pim_layer_type type;
-  bool input_ready;
-  pim_layer *next_layer;
-  unsigned m_layer_id;
-  new_addr_type *input_addr;
+  unsigned pending_next;
+  std::set<pim_layer *> issued_next;
+  bool active;
+  std::vector<pim_layer *> prev_layers;
+  std::vector<pim_layer *> next_layers;
+  std::vector<new_addr_type> matmul_addr;
+  new_addr_type input_addr;
   unsigned input_size;
+  new_addr_type output_addr;
+  unsigned output_size;
   std::queue<warp_inst_t *> inst_queue;
+  std::vector<pim_xbar *> m_xbars;
 };
 
 class pim_core_ctx : public core_t {
@@ -241,6 +259,7 @@ class pim_core_ctx : public core_t {
   // void accept_fetch_response(mem_fetch *mf);
   void accept_response(mem_fetch *mf);
 
+  void ldst_cycle();
   void memory_cycle();
   void issue();
   void control_cycle();
@@ -248,14 +267,15 @@ class pim_core_ctx : public core_t {
   void execute();
   void commit();
   int test_res_bus(int latency);
-  void record_load_done(warp_inst_t *inst);
   void create_exec_pipeline();
+  Scoreboard *m_scoreboard;
 
   static const unsigned MAX_ALU_LATENCY = 512;
   unsigned num_result_bus;
   std::vector<std::bitset<MAX_ALU_LATENCY> *> m_result_bus;
   pim_core_config *get_pim_core_config() { return m_pim_core_config; }
   void get_L1D_sub_stats(struct cache_sub_stats &css) const;
+  void get_cache_stats(cache_stats &cs);
  protected:
   pim_core_config *m_pim_core_config;
 
@@ -322,6 +342,7 @@ class pim_core_ctx : public core_t {
   std::vector<register_set *> m_issue_reg;
   std::vector<register_set *> m_result_reg;
   std::vector<register_set *> m_ldst_reg;
+  std::unordered_map<warp_inst_t *, std::vector<new_addr_type>> m_addr_map;
 
   // statistics
   shader_core_stats *m_stats;
@@ -346,8 +367,6 @@ class pim_core_ctx : public core_t {
   std::vector<scratchpad *> m_scratchpads;
   // new_addr_type weight_addr = 0xffff7fffffffffff;
   // new_addr_type input_addr =  0xffff8fffffffffff;
-
-  std::unordered_map<pim_layer *, std::vector<unsigned>> m_layer_to_xbars;
 };
 
 class pim_core_cluster : public simt_core_cluster {
@@ -364,7 +383,10 @@ class pim_core_cluster : public simt_core_cluster {
 
   void core_cycle();
   void icnt_cycle();
+  void ldst_cycle();
+  void core_control_cycle();
   void map_layer(pim_layer *layer);
+  void get_cache_stats(cache_stats &cs) const;
 
   // void reinit();
   // void cache_flush();
@@ -562,6 +584,7 @@ class pim_xbar : public simd_function_unit {
 
     mapped = false;
     active = false;
+    stall = true;
 
     m_program_latency = 0;
     m_compute_latency = 0;
@@ -573,8 +596,6 @@ class pim_xbar : public simd_function_unit {
     m_pim_config = core->get_pim_core_config();
     m_gpu = m_core->get_gpu();
     weight = buffer();
-    input = buffer();
-    output = buffer();
 
     // m_xbar_interface = new pseudo_xbar_memory_interface(m_core, m_core->m_cluster, this);
   }
@@ -585,6 +606,10 @@ class pim_xbar : public simd_function_unit {
       return false;
     }
     // dispatch reg is free
+
+    // if (stall) {
+    //   return false;
+    // }
 
     if (programming) {
       // during programming, cannot do anything else
@@ -605,17 +630,30 @@ class pim_xbar : public simd_function_unit {
   }
 
   virtual void cycle() {
-    if (!m_pipeline_reg[0]->empty()) {
-      if (m_pipeline_reg[0]->op == XBAR_SAMPLE_OP) {
-        sampling = false;
-      } else if (m_pipeline_reg[0]->op == XBAR_INTEGRATE_OP) {
-        computing = false;
-      } else if (m_pipeline_reg[0]->op == XBAR_PROGRAM_OP) {
-        programming = false;
+    if (!m_dispatch_reg->empty()) {
+      if (m_dispatch_reg->op == XBAR_PROGRAM_OP) {
+        if (m_pipeline_reg[PROGRAM_REG]->empty()) {
+          m_program_latency = m_dispatch_reg->latency;
+          move_warp(m_pipeline_reg[PROGRAM_REG], m_dispatch_reg);
+        }
+      } else if (m_dispatch_reg->op == XBAR_INTEGRATE_OP) {
+        if (m_pipeline_reg[COMPUTE_REG]->empty()) {
+          m_core->m_pim_stats->xbar_integrate_count[m_xbar_id]++;
+          m_compute_latency = m_dispatch_reg->latency;
+          move_warp(m_pipeline_reg[COMPUTE_REG], m_dispatch_reg);
+        }
+      } else if (m_dispatch_reg->op == XBAR_SAMPLE_OP) {
+        if (m_pipeline_reg[SAMPLE_REG]->empty()) {
+          m_sample_latency = m_dispatch_reg->latency;
+          move_warp(m_pipeline_reg[SAMPLE_REG], m_dispatch_reg);
+        }
+      } else if (m_dispatch_reg->op == EXIT_OPS) {
+        if (m_pipeline_reg[0]->empty()) {
+          move_warp(m_pipeline_reg[0], m_dispatch_reg);
+        }
       }
-
-      m_result_port->move_in(m_pipeline_reg[0]);
     }
+    
     bool cycled = false;
     if (!m_pipeline_reg[PROGRAM_REG]->empty()) {
       // extra caution
@@ -653,28 +691,16 @@ class pim_xbar : public simd_function_unit {
       m_core->m_pim_stats->xbar_active_cycle[m_xbar_id]++;
     }
 
-    if (!m_dispatch_reg->empty()) {
-      if (m_dispatch_reg->op == XBAR_PROGRAM_OP) {
-        if (m_pipeline_reg[PROGRAM_REG]->empty()) {
-          m_program_latency = m_dispatch_reg->latency;
-          move_warp(m_pipeline_reg[PROGRAM_REG], m_dispatch_reg);
-        }
-      } else if (m_dispatch_reg->op == XBAR_INTEGRATE_OP) {
-        if (m_pipeline_reg[COMPUTE_REG]->empty()) {
-          m_core->m_pim_stats->xbar_integrate_count[m_xbar_id]++;
-          m_compute_latency = m_dispatch_reg->latency;
-          move_warp(m_pipeline_reg[COMPUTE_REG], m_dispatch_reg);
-        }
-      } else if (m_dispatch_reg->op == XBAR_SAMPLE_OP) {
-        if (m_pipeline_reg[SAMPLE_REG]->empty()) {
-          m_sample_latency = m_dispatch_reg->latency;
-          move_warp(m_pipeline_reg[SAMPLE_REG], m_dispatch_reg);
-        }
-      } else if (m_dispatch_reg->op == EXIT_OPS) {
-        if (m_pipeline_reg[0]->empty()) {
-          move_warp(m_pipeline_reg[0], m_dispatch_reg);
-        }
+    if (!m_pipeline_reg[0]->empty()) {
+      if (m_pipeline_reg[0]->op == XBAR_SAMPLE_OP) {
+        sampling = false;
+      } else if (m_pipeline_reg[0]->op == XBAR_INTEGRATE_OP) {
+        computing = false;
+      } else if (m_pipeline_reg[0]->op == XBAR_PROGRAM_OP) {
+        programming = false;
       }
+
+      m_result_port->move_in(m_pipeline_reg[0]);
     }
   }
   virtual unsigned get_issue_reg_id() { return m_issue_reg_id; }
@@ -715,8 +741,6 @@ class pim_xbar : public simd_function_unit {
   pim_core_config *m_pim_config;
   // xbar_memory_interface *m_xbar_interface;
   buffer weight;
-  buffer input;
-  buffer output;
   std::vector<unsigned> m_op_pending_loads;
   std::queue<new_addr_type> m_load_queue;
   std::unordered_map<new_addr_type, std::set<unsigned>> addr_to_op;
@@ -730,6 +754,7 @@ class pim_xbar : public simd_function_unit {
   bool programming;
   bool mapped;
   bool active;
+  bool stall;
 };
 
 
@@ -755,10 +780,11 @@ class simple_ldst_unit : public ldst_unit {
                    const shader_core_config *config,
                    const memory_config *mem_config,
                    class shader_core_stats *stats, unsigned sid, unsigned tpc,
-                   gpgpu_sim *gpu, exec_shader_core_ctx *core, pim_core_ctx *pim_core)
+                   gpgpu_sim *gpu, exec_shader_core_ctx *core, pim_core_ctx *pim_core, Scoreboard *scoreboard)
       : ldst_unit(icnt, mf_allocator, core, NULL, NULL, config, mem_config,
                   stats, sid, tpc) {
     m_pim_core = pim_core;
+    m_scoreboard = scoreboard;
   }
 
   void cycle();
