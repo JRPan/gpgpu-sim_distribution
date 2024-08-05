@@ -797,6 +797,7 @@ void gpgpu_sim::launch_pim(std::vector<pim_layer *> layers) {
   //   pim_active = true;
   // }
   unsigned n = 0;
+  pim_finished_count = 0;
 
   // map layers
   for (auto layer : layers){
@@ -805,8 +806,10 @@ void gpgpu_sim::launch_pim(std::vector<pim_layer *> layers) {
     }
     for (unsigned i = 0; i < m_shader_config->n_pim_clusters; i++) {
       if (!m_pim_cluster[i]->full) {
-        m_pim_cluster[i]->map_layer(layer);
-        n++;
+        bool issued = m_pim_cluster[i]->map_layer(layer);
+        if (issued) {
+          break;
+        }
       }
     }
   }
@@ -1117,7 +1120,7 @@ bool gpgpu_sim::active() {
     if (m_memory_partition_unit[i]->busy() > 0) return true;
   ;
   if (icnt_busy()) return true;
-  if (pim_icnt_busy()) return true;
+  // if (pim_icnt_busy()) return true;
   if (get_more_cta_left()) return true;
   return false;
 }
@@ -2024,8 +2027,12 @@ void gpgpu_sim::cycle() {
       layer->active = true;
 
       if (layer->type == OUTPUT) {
-        pim_active = false;
-        break;  // finished
+        pim_finished_count++;
+        if (pim_finished_count == 32) {
+          printf("PIM finished\n");
+          pim_active = false;
+          break;  // finished
+        }
       }
       // passthrough
       if (layer->mapped) {

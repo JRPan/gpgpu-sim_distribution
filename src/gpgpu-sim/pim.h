@@ -385,7 +385,7 @@ class pim_core_cluster : public simt_core_cluster {
   void icnt_cycle();
   void ldst_cycle();
   void core_control_cycle();
-  void map_layer(pim_layer *layer);
+  bool map_layer(pim_layer *layer);
   void get_cache_stats(cache_stats &cs) const;
 
   // void reinit();
@@ -421,7 +421,7 @@ class pim_core_cluster : public simt_core_cluster {
 class pim_core_config {
  public:
   pim_core_config(gpgpu_context *ctx) {
-    num_xbars = 1024;
+    num_xbars = 256;
     xbar_size_x = 256;
     xbar_size_y = 256;
     adc_count = 2;
@@ -522,26 +522,36 @@ class pim_core_stats : public shader_core_stats {
                  const shader_core_config *shader_config)
       : shader_core_stats(shader_config) {
     m_pim_config = pim_config;
-    input_loads_sent.resize(m_pim_config->num_xbars, 0);
-    xbar_device_used.resize(m_pim_config->num_xbars, 0);
-    xbar_integrate_count.resize(m_pim_config->num_xbars, 0);
-    xbar_program_cycle.resize(m_pim_config->num_xbars, 0);
-    xbar_sample_cycle.resize(m_pim_config->num_xbars, 0);
-    xbar_active_cycle.resize(m_pim_config->num_xbars, 0);
-    xbar_program_efficiency.resize(m_pim_config->num_xbars, 0);
-    xbar_executed_inst.resize(m_pim_config->num_xbars, 0);
+    input_loads_sent.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
+    xbar_device_used.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
+    xbar_integrate_count.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
+    xbar_program_cycle.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
+    xbar_sample_cycle.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
+    xbar_active_cycle.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
+    xbar_program_efficiency.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
+    xbar_executed_inst.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
+    for (unsigned i = 0; i < shader_config->n_pim_clusters; i++) {
+      input_loads_sent[i].resize(pim_config->num_xbars, 0);
+      xbar_device_used[i].resize(pim_config->num_xbars, 0);
+      xbar_integrate_count[i].resize(pim_config->num_xbars, 0);
+      xbar_program_cycle[i].resize(pim_config->num_xbars, 0);
+      xbar_sample_cycle[i].resize(pim_config->num_xbars, 0);
+      xbar_active_cycle[i].resize(pim_config->num_xbars, 0);
+      xbar_program_efficiency[i].resize(pim_config->num_xbars, 0);
+      xbar_executed_inst[i].resize(pim_config->num_xbars, 0);
+    }
   }
 
   void print(FILE *fout, unsigned long long tot_cycle) const;
 
-  std::vector<unsigned> input_loads_sent;
-  std::vector<unsigned> xbar_device_used;
-  std::vector<unsigned> xbar_integrate_count;
-  std::vector<unsigned> xbar_program_cycle;
-  std::vector<unsigned> xbar_sample_cycle;
-  std::vector<unsigned> xbar_active_cycle;
-  std::vector<unsigned> xbar_program_efficiency;
-  std::vector<unsigned> xbar_executed_inst;
+  std::vector<std::vector<unsigned>> input_loads_sent;
+  std::vector<std::vector<unsigned>> xbar_device_used;
+  std::vector<std::vector<unsigned>> xbar_integrate_count;
+  std::vector<std::vector<unsigned>> xbar_program_cycle;
+  std::vector<std::vector<unsigned>> xbar_sample_cycle;
+  std::vector<std::vector<unsigned>> xbar_active_cycle;
+  std::vector<std::vector<unsigned>> xbar_program_efficiency;
+  std::vector<std::vector<unsigned>> xbar_executed_inst;
 
   const pim_core_config *m_pim_config;
 
@@ -638,7 +648,9 @@ class pim_xbar : public simd_function_unit {
         }
       } else if (m_dispatch_reg->op == XBAR_INTEGRATE_OP) {
         if (m_pipeline_reg[COMPUTE_REG]->empty()) {
-          m_core->m_pim_stats->xbar_integrate_count[m_xbar_id]++;
+          m_core->m_pim_stats
+              ->xbar_integrate_count[m_core->m_tpc - m_config->n_simt_clusters]
+                                    [m_xbar_id]++;
           m_compute_latency = m_dispatch_reg->latency;
           move_warp(m_pipeline_reg[COMPUTE_REG], m_dispatch_reg);
         }
@@ -688,7 +700,9 @@ class pim_xbar : public simd_function_unit {
     }
 
     if (cycled) {
-      m_core->m_pim_stats->xbar_active_cycle[m_xbar_id]++;
+      m_core->m_pim_stats
+          ->xbar_active_cycle[m_core->m_tpc - m_config->n_simt_clusters]
+                             [m_xbar_id]++;
     }
 
     if (!m_pipeline_reg[0]->empty()) {

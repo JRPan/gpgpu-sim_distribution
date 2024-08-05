@@ -195,7 +195,7 @@ void pim_core_ctx::control_cycle() {
     } else if (xbar->m_status == XBAR_PROGRAM) {
 
     } else if (xbar->m_status == XBAR_PROGRAMMED) {
-      printf("xbar %u start compute, %u\n", xbar->m_xbar_id, cycle);
+      printf("core %u xbar %u start compute, %u\n", m_tpc, xbar->m_xbar_id, cycle);
       xbar->m_status = XBAR_COMPUTING;
     } else if (xbar->m_status == XBAR_COMPUTING) {
       unsigned size = 32;
@@ -472,7 +472,7 @@ void pim_core_ctx::commit() {
       warp_inst_t **ready_reg = m_result_reg[n]->get_ready();
       m_scoreboard->releaseRegisters(*ready_reg);
       (*ready_reg)->clear();
-      m_pim_stats->xbar_executed_inst[n]++;
+      m_pim_stats->xbar_executed_inst[m_tpc-m_config->n_simt_clusters][n]++;
 
       if ((*ready_reg)->op == XBAR_PROGRAM_OP) {
 
@@ -488,12 +488,12 @@ void pim_core_ctx::commit() {
         // printf("xbar %u done computing, %u, \n",n , cycle);
       } else if ((*ready_reg)->op == XBAR_SAMPLE_OP) {
         if(m_xbars[n]->done_activation % 10000 == 0) {
-          printf("xbar %u done sampling, %u, %u\n", n,
+          printf("core %u xbar %u done sampling, %u, %u\n", m_tpc, n,
                  m_xbars[n]->done_activation, cycle);
         }
         m_xbars[n]->done_activation++;
       } else if ((*ready_reg)->op == EXIT_OPS) {
-        printf("xbar %u done layer, %u\n", n, cycle);
+        printf("core %u xbar %u done layer, %u\n", m_tpc, n, cycle);
         m_xbars[n]->m_status = XBAR_DONE;
       }
     }
@@ -667,14 +667,19 @@ void pim_xbar::issue(register_set &source_reg) {
 //   m_xbar->xbar_icnt_inject_request_packet(mf);
 // }
 
-void pim_core_cluster::map_layer(pim_layer *layer) {
+bool pim_core_cluster::map_layer(pim_layer *layer) {
   for (unsigned i = 0; i < m_config->n_pim_cores_per_cluster; i++) {
     if (m_core[i]->can_issue_layer(layer)) { 
       if (layer->type == CONV) {
         m_core[i]->map_layer_conv2d(layer);
+        if (m_core[i]->core_full) {
+          full = true;
+        }
+        return true;
       }
     }
   }
+  return false;
 }
 
 void pim_core_cluster::get_L1D_sub_stats(struct cache_sub_stats &css) const {
@@ -736,7 +741,7 @@ void pim_core_ctx::map_layer_conv2d(pim_layer *layer) {
   assert(row_per_xbar <= m_pim_core_config->xbar_size_y);
 
   unsigned col_per_xbar = std::ceil((float) cols_total / xbar_col_used);
-  assert(col_per_xbar <= m_pim_core_config->xbar_size_x);
+assert(col_per_xbar <= m_pim_core_config->xbar_size_x);
 
   for (unsigned slice_index = 0;
        slice_index < m_pim_core_config->num_device_per_weight();
@@ -748,7 +753,7 @@ void pim_core_ctx::map_layer_conv2d(pim_layer *layer) {
       for (unsigned xbar_row_index = 0; xbar_row_index < xbar_row_used;
            xbar_row_index++) {
         pim_xbar *xbar = next_avail_xbar();
-        printf("layer %s mappped to xbar %u\n", layer->name.c_str(), xbar->m_xbar_id);
+        printf("layer %s mapped to core %u xbar %u\n", layer->name.c_str(), m_tpc, xbar->m_xbar_id);
 
         // xbar->output.addr = output_addr;
         // xbar->output.size = output_size;
@@ -817,7 +822,8 @@ void pim_core_ctx::map_layer_conv2d(pim_layer *layer) {
         unsigned used_devices = xbar->used_cols * xbar->used_rows;
 
         unsigned utilization = 100 * used_devices / total_devices;
-        m_pim_stats->xbar_program_efficiency[xbar->m_xbar_id] = utilization;
+        m_pim_stats->xbar_program_efficiency[m_tpc - m_config->n_simt_clusters]
+                                            [xbar->m_xbar_id] = utilization;
       }
     }
   }
@@ -892,23 +898,31 @@ void pim_core_ctx::get_cache_stats(cache_stats &cs) {
 
 void pim_core_stats::print(FILE *fout, unsigned long long tot_cycle) const {
 
-  for (unsigned i = 0; i < xbar_program_efficiency.size(); i++) {
-    if (xbar_program_efficiency[i] == 0) continue;
-    fprintf(fout, "xbar_program_efficiency[%u]: %u\n", i,
-            xbar_program_efficiency[i]);
+  for (unsigned tpc = 0; tpc < xbar_program_efficiency.size(); tpc++) {
+    for (unsigned i = 0; i < xbar_program_efficiency[tpc].size(); i++) {
+      if (xbar_program_efficiency[tpc][i] == 0) continue;
+      fprintf(fout, "xbar_program_efficiency[%u][%u]: %u\n", tpc, i,
+              xbar_program_efficiency[tpc][i]);
+    }
   }
   fprintf(fout, "\n");
 
-  for (unsigned i = 0; i < xbar_executed_inst.size(); i++) {
-    if (xbar_executed_inst[i] == 0) continue;
-    fprintf(fout, "xbar_executed_inst[%u]: %u\n", i, xbar_executed_inst[i]);
+  for (unsigned tpc = 0; tpc < xbar_executed_inst.size(); tpc++) {
+    for (unsigned i = 0; i < xbar_executed_inst[tpc].size(); i++) {
+      if (xbar_executed_inst[tpc][i] == 0) continue;
+      fprintf(fout, "xbar_executed_inst[%u][%u]: %u\n", tpc, i,
+              xbar_executed_inst[tpc][i]);
+    }
   }
   fprintf(fout, "\n");
 
-  for (unsigned i = 0; i < xbar_active_cycle.size(); i++) {
-    if (xbar_active_cycle[i] == 0) continue;
-    fprintf(fout, "xbar_active_cycle[%u]: %u [%.2f]\n", i, xbar_active_cycle[i],
-            (float)xbar_active_cycle[i] / tot_cycle);
+  for (unsigned tpc = 0; tpc < xbar_active_cycle.size(); tpc++) {
+    for (unsigned i = 0; i < xbar_active_cycle[tpc].size(); i++) {
+      if (xbar_active_cycle[tpc][i] == 0) continue;
+      fprintf(fout, "xbar_active_cycle[%u]: %u [%.2f]\n", i,
+              xbar_active_cycle[tpc][i],
+              (float)xbar_active_cycle[tpc][i] / tot_cycle);
+    }
   }
   fprintf(fout, "\n");
 }

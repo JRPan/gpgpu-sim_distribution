@@ -690,6 +690,7 @@ class gpgpu_sim : public gpgpu_t {
   virtual void createSIMTCluster() = 0;
 
  public:
+  unsigned pim_finished_count;
   bool pim_active;
   new_addr_type pim_addr;
   unsigned done_pim_pass;
