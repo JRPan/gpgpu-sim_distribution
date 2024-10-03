@@ -64,20 +64,34 @@ void gpgpu_sim::visualizer_printstat() {
   visualizer_first_printstat = false;
 
   cflog_visualizer_gzprint(visualizer_file);
-  shader_CTA_count_visualizer_gzprint(visualizer_file);
+  // shader_CTA_count_visualizer_gzprint(visualizer_file);
 
-  for (unsigned i = 0; i < m_memory_config->m_n_mem; i++)
-    m_memory_partition_unit[i]->visualizer_print(visualizer_file);
-  m_shader_stats->visualizer_print(visualizer_file);
-  m_memory_stats->visualizer_print(visualizer_file);
-  m_power_stats->visualizer_print(visualizer_file);
+  // for (unsigned i = 0; i < m_memory_config->m_n_mem; i++)
+  //   m_memory_partition_unit[i]->visualizer_print(visualizer_file);
+  // m_shader_stats->visualizer_print(visualizer_file);
+  // m_memory_stats->visualizer_print(visualizer_file);
+  // m_power_stats->visualizer_print(visualizer_file);
+
   // proc->visualizer_print(visualizer_file);
   // other parameters for graphing
   gzprintf(visualizer_file, "globalcyclecount: %lld\n", gpu_sim_cycle);
-  gzprintf(visualizer_file, "globalinsncount: %lld\n", gpu_sim_insn);
-  gzprintf(visualizer_file, "globaltotinsncount: %lld\n", gpu_tot_sim_insn);
+  // gzprintf(visualizer_file, "globalinsncount: %lld\n", gpu_sim_insn);
+  // gzprintf(visualizer_file, "globaltotinsncount: %lld\n", gpu_tot_sim_insn);
 
-  time_vector_print_interval2gzfile(visualizer_file);
+  // time_vector_print_interval2gzfile(visualizer_file);
+
+  gzprintf(visualizer_file, "xbar_stall_reason: ");
+  for (unsigned reason = 0; reason < m_pim_stats->xbar_stall.size(); reason++) {
+    gzprintf(visualizer_file, "%u ", m_pim_stats->xbar_stall[reason]);
+  }
+  gzprintf(visualizer_file, "\n");
+
+  gzprintf(visualizer_file, "xbar_stall_inst: ");
+  gzprintf(visualizer_file, "%u ", m_pim_stats->xbar_stall_inst[STORE_OP]);
+  gzprintf(visualizer_file, "%u ", m_pim_stats->xbar_stall_inst[XBAR_INTEGRATE_OP]);
+  gzprintf(visualizer_file, "%u ", m_pim_stats->xbar_stall_inst[XBAR_SAMPLE_OP]);
+  gzprintf(visualizer_file, "%u ", m_pim_stats->xbar_stall_inst[PSEUDO_LD_OP]);
+  gzprintf(visualizer_file, "\n");
 
   gzclose(visualizer_file);
   /*

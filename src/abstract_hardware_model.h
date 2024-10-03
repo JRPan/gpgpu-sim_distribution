@@ -138,7 +138,8 @@ enum uarch_op_t {
   XBAR_PROGRAM_OP, 
   XBAR_INTEGRATE_OP,
   XBAR_SAMPLE_OP, 
-  PSEUDO_LD_OP
+  PSEUDO_LD_OP,
+  NUM_UARCH_OP
 };
 typedef enum uarch_op_t op_type;
 
@@ -1095,6 +1096,11 @@ class warp_inst_t : public inst_t {
 
     m_depbar_group_no = 0;
     pim_xbar_id = -1;
+    ar1 = 0;
+    ar2 = 0;
+    pred = 0;
+    incount = 0;
+    outcount = 0;
   }
   virtual ~warp_inst_t() {}
 
@@ -1131,7 +1137,7 @@ class warp_inst_t : public inst_t {
     if (accessq_empty())
       return;
     else {
-      printf("Printing mem access generated\n");
+      // printf("Printing mem access generated\n");
       std::list<mem_access_t>::iterator it;
       for (it = m_accessq.begin(); it != m_accessq.end(); ++it) {
         printf("MEM_TXN_GEN:%s:%llx, Size:%d \n",
@@ -1272,7 +1278,6 @@ class warp_inst_t : public inst_t {
                                                        // of 4B each)
   };
   bool m_per_scalar_thread_valid;
-  std::vector<per_thread_info> m_per_scalar_thread;
   bool m_mem_accesses_created;
   std::list<mem_access_t> m_accessq;
 
@@ -1280,6 +1285,7 @@ class warp_inst_t : public inst_t {
 
   // Jin: cdp support
  public:
+  std::vector<per_thread_info> m_per_scalar_thread;
   int m_is_cdp;
 
   // Ni: add boolean to indicate whether the instruction is ldgsts

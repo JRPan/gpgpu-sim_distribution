@@ -478,23 +478,21 @@ void warp_inst_t::memory_coalescing_arch(bool is_write,
   unsigned segment_size = 0;
   unsigned warp_parts = m_config->mem_warp_parts;
   bool sector_segment_size = false;
+  bool sectored = m_config->gpgpu_ctx->the_gpgpusim->g_the_gpu
+                     ->getShaderCoreConfig()
+                     ->m_L1D_config.m_cache_type == SECTOR;
 
-  if (m_config->gpgpu_coalesce_arch >= 20 &&
-      m_config->gpgpu_coalesce_arch < 39) {
-    // Fermi and Kepler, L1 is normal and L2 is sector
-    if (m_config->gmem_skip_L1D || cache_op == CACHE_GLOBAL)
-      sector_segment_size = true;
-    else
-      sector_segment_size = false;
-  } else if (m_config->gpgpu_coalesce_arch >= 40) {
-    // Maxwell, Pascal and Volta, L1 and L2 are sectors
-    // all requests should be 32 bytes
+  if (sectored) {
     sector_segment_size = true;
   }
 
+  unsigned line_size =
+      m_config->gpgpu_ctx->the_gpgpusim->g_the_gpu->getShaderCoreConfig()
+          ->m_L1D_config.get_line_sz(); 
+
   switch (data_size) {
     case 1:
-      segment_size = 32;
+      segment_size = 1; // TMP fix
       break;
     case 2:
       segment_size = sector_segment_size ? 32 : 64;
@@ -538,9 +536,11 @@ void warp_inst_t::memory_coalescing_arch(bool is_write,
         new_addr_type addr = m_per_scalar_thread[thread].memreqaddr[access];
         new_addr_type block_address =
             line_size_based_tag_func(addr, segment_size);
-        unsigned chunk =
-            (addr & 127) / 32;  // which 32-byte chunk within in a 128-byte
-                                // chunk does this thread access?
+
+        unsigned chunk = 0;
+        if (sectored) {
+          chunk = (addr & (line_size - 1)) / (line_size / SECTOR_CHUNCK_SIZE);
+        }
         transaction_info &info = subwarp_transactions[block_address];
 
         // can only write to one segment
@@ -550,7 +550,8 @@ void warp_inst_t::memory_coalescing_arch(bool is_write,
 
         info.chunks.set(chunk);
         info.active.set(thread);
-        unsigned idx = (addr & 127);
+
+        unsigned idx = addr & (data_size - 1);
         for (unsigned i = 0; i < data_size_coales; i++)
           if ((idx + i) < MAX_MEMORY_ACCESS_SIZE) info.bytes.set(idx + i);
 
@@ -558,6 +559,7 @@ void warp_inst_t::memory_coalescing_arch(bool is_write,
         // segment handle this special case
         if (block_address != line_size_based_tag_func(
                                  addr + data_size_coales - 1, segment_size)) {
+          assert(0);  // TODO: remove the assumtion of 32/128
           addr = addr + data_size_coales - 1;
           new_addr_type block_address =
               line_size_based_tag_func(addr, segment_size);
@@ -565,7 +567,7 @@ void warp_inst_t::memory_coalescing_arch(bool is_write,
           transaction_info &info = subwarp_transactions[block_address];
           info.chunks.set(chunk);
           info.active.set(thread);
-          unsigned idx = (addr & 127);
+          unsigned idx = addr & (data_size - 1);
           for (unsigned i = 0; i < data_size_coales; i++)
             if ((idx + i) < MAX_MEMORY_ACCESS_SIZE) info.bytes.set(idx + i);
         }

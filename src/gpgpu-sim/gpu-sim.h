@@ -462,6 +462,9 @@ class gpgpu_sim_config : public power_config,
   size_t runtime_sync_depth_limit;
   size_t runtime_pending_launch_count_limit;
 
+  bool pim_relaunch;
+  bool pim_max_pass;
+
   // gpu compute capability options
   unsigned int gpgpu_compute_capability_major;
   unsigned int gpgpu_compute_capability_minor;

@@ -79,7 +79,7 @@ enum pim_data_type {
   NUM_DATA_TYPES
 };
 
-enum pim_layer_type {
+enum class pim_layer_type {
   CONV = 1,
   CONV2D, // to be removed
   LINEAR,
@@ -88,6 +88,9 @@ enum pim_layer_type {
   MAXPOOL,
   ADD,
   GLOBAL_AVG_POOL,
+  AUX,
+  MATMUL,
+  CONSTANT,
   OUTPUT,
   UNDEFINED,
   NUM_LAYER_TYPES
@@ -106,6 +109,12 @@ enum xbar_status {
   XBAR_DONE,
   XBAR_IDLE,
   XBAR_NUM_STATUS
+};
+
+enum xbar_stall {
+  XBAR_STALL_LD_FULL,
+  XBAR_STALL_LD_ST_CONFLICT,
+  XBAR_STALL_NUM
 };
 
 class buffer {
@@ -146,62 +155,27 @@ class pim_layer {
     input_size = 0;
     output_addr = 0;
     mapped = false;
-    pending_next = 0;
     active = false;
   };
   ~pim_layer() {}
-  // void im2col(float *input, float *&output, int N, int C, int H, int W,
-  //             int R, int S, int stride_h, int stride_w, int pad_h,
-  //             int pad_w) {
-  void im2col(new_addr_type addr) {
-    int new_height = (H + 2 * pad_h - R) / stride_h + 1;
-    assert(new_height == (int)P);
-    int new_width = (W + 2 * pad_w - S) / stride_w + 1;
-    assert(new_width == (int)Q);
-
-    // new_addr_type *output =
-    //     new new_addr_type[N * new_height * new_width * C * R * S];
-    // new_addr_type *input = new new_addr_type[N * C * H * W];
-    std::vector<new_addr_type> output;
-    output.resize(N * new_height * new_width * C * R * S);
-    std::vector<new_addr_type> input;
-    input.resize(N * C * H * W);
-    for (unsigned i = 0; i < N * C * H * W; ++i) {
-      // instead of data, save addr
-      input[i] = addr + i;
-    }
-
-    for (int n = 0; n < (int)N; ++n) {
-      for (int h = 0; h < (int)new_height; ++h) {
-        for (int w = 0; w < (int)new_width; ++w) {
-          for (int c = 0; c < (int)C; ++c) {
-            for (int i = 0; i < (int)R; ++i) {
-              for (int j = 0; j < (int)S; ++j) {
-                int h_pad = h * stride_h + i - pad_h;
-                int w_pad = w * stride_w + j - pad_w;
-                unsigned out_index = n * new_height * new_width * C * R * S +
-                         h * new_width * C * R * S +
-                         w * C * R * S + c * R * S +
-                         i * S + j;
-                if (h_pad >= 0 && h_pad < (int)H && w_pad >= 0 && w_pad < (int)W) {
-                  output[out_index] =
-                      input[n * C * H * W + c * H * W + h_pad * W + w_pad];
-                } else {
-                  output[out_index] = 0;
-                }
-                // printf("%-8llu ", output[out_index]);
-              }
-              // printf("\n");
-            }
-            // printf("\n");
-          }
-          // printf("\n");
-        }
+  void copy_from(pim_layer *other) {
+    if (this != other) {
+      N = other->N;
+      C = other->C;
+      H = other->H;
+      W = other->W;
+      K = other->K;
+      P = other->P;
+      Q = other->Q;
+      R = other->R;
+      S = other->S;
+      if (other->tensor_dim.size() != 0) {
+        tensor_dim = other->tensor_dim;
       }
     }
-    matmul_addr = output;
-    input_size = N * new_height * new_width * C * R * S;
   }
+  void im2col(new_addr_type addr);
+  void gemm(new_addr_type addr);
 
 
   std::string name;
@@ -224,7 +198,7 @@ class pim_layer {
   unsigned mapped;
   unsigned data_size;
   pim_layer_type type;
-  unsigned pending_next;
+  std::vector<unsigned> tensor_dim;
   std::set<pim_layer *> issued_next;
   bool active;
   std::vector<pim_layer *> prev_layers;
@@ -236,6 +210,12 @@ class pim_layer {
   unsigned output_size;
   std::queue<warp_inst_t *> inst_queue;
   std::vector<pim_xbar *> m_xbars;
+
+  // data
+  std::vector<unsigned> data;
+
+  // mapping
+  unsigned global_height;
 };
 
 class pim_core_ctx : public core_t {
@@ -263,7 +243,8 @@ class pim_core_ctx : public core_t {
   void memory_cycle();
   void issue();
   void control_cycle();
-  bool issue_mem(warp_inst_t *inst);
+  bool issue_mem(warp_inst_t *inst, active_mask_t active_mask);
+  void writeback(warp_inst_t *inst);
   void execute();
   void commit();
   int test_res_bus(int latency);
@@ -324,8 +305,12 @@ class pim_core_ctx : public core_t {
                                        unsigned *pc, unsigned *rpc) = 0;
   virtual const active_mask_t &get_active_mask(unsigned warp_id,
                                                const warp_inst_t *pI) = 0;
-  void map_layer_conv2d(pim_layer *layer);
-  bool can_issue_layer(pim_layer *layer);
+  bool map_layer_conv2d(pim_layer *layer);
+  bool map_layer_linear(pim_layer *layer);
+
+  unsigned get_pim_cluster_id() {
+    return m_tpc - m_config->n_simt_clusters;
+  }
 
   pim_xbar *next_avail_xbar();
 
@@ -356,7 +341,6 @@ class pim_core_ctx : public core_t {
 //  private:
   unsigned sent_bytes;
   unsigned used_xbars;
-  bool core_full;
   
   simple_ldst_unit *m_ldst_unit;
   std::list<mem_fetch *> m_response_fifo;
@@ -376,7 +360,6 @@ class pim_core_cluster : public simt_core_cluster {
                    const memory_config *mem_config, shader_core_stats *stats,
                    memory_stats_t *mstats, pim_core_config *pim_config, pim_core_stats *pim_stats)
       : simt_core_cluster(gpu, cluster_id, config, mem_config, stats, mstats) {
-    full = false;
     m_pim_config = pim_config;
     m_pim_stats = pim_stats;
   };
@@ -403,7 +386,6 @@ class pim_core_cluster : public simt_core_cluster {
     m_response_fifo.push_back(mf);
   }
   // virtual void create_pim_core_ctx() = 0;
-  bool full;
 
 //  protected:
 //   unsigned m_cluster_id;
@@ -422,24 +404,27 @@ class pim_core_config {
  public:
   pim_core_config(gpgpu_context *ctx) {
     num_xbars = 256;
-    xbar_size_x = 256;
-    xbar_size_y = 256;
+    xbar_size_x = 128;
+    xbar_size_y = 128;
     adc_count = 2;
     adc_precision = 4;
     dac_precision = 1;
-    row_activation_rate = 4;
+    row_activation_rate = 128;
 
     program_latency = 5;
     integrate_latency = 5;
     sample_latency = 5;
 
-    device_precision = 4;
+    device_precision = 2;
 
     num_scratchpads = 4;
     scratchpad_size = 1024;
   
     gpgpu_ctx = ctx; 
     data_type = INT8_TYPE;
+
+    num_input_regs = 256;
+    num_output_regs = 256;
   }
 
   void init() {}
@@ -465,6 +450,8 @@ class pim_core_config {
   unsigned row_activation_rate;
   unsigned num_scratchpads;
   unsigned scratchpad_size;
+  unsigned num_input_regs;
+  unsigned num_output_regs;
 
 };
 
@@ -528,8 +515,10 @@ class pim_core_stats : public shader_core_stats {
     xbar_program_cycle.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
     xbar_sample_cycle.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
     xbar_active_cycle.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
+    xbar_tot_cycle.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
     xbar_program_efficiency.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
     xbar_executed_inst.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
+
     for (unsigned i = 0; i < shader_config->n_pim_clusters; i++) {
       input_loads_sent[i].resize(pim_config->num_xbars, 0);
       xbar_device_used[i].resize(pim_config->num_xbars, 0);
@@ -537,9 +526,13 @@ class pim_core_stats : public shader_core_stats {
       xbar_program_cycle[i].resize(pim_config->num_xbars, 0);
       xbar_sample_cycle[i].resize(pim_config->num_xbars, 0);
       xbar_active_cycle[i].resize(pim_config->num_xbars, 0);
+      xbar_tot_cycle[i].resize(pim_config->num_xbars, 0);
       xbar_program_efficiency[i].resize(pim_config->num_xbars, 0);
       xbar_executed_inst[i].resize(pim_config->num_xbars, 0);
     }
+
+    xbar_stall.resize(XBAR_STALL_NUM, 0);
+    xbar_stall_inst.resize(NUM_UARCH_OP, 0);
   }
 
   void print(FILE *fout, unsigned long long tot_cycle) const;
@@ -550,8 +543,12 @@ class pim_core_stats : public shader_core_stats {
   std::vector<std::vector<unsigned>> xbar_program_cycle;
   std::vector<std::vector<unsigned>> xbar_sample_cycle;
   std::vector<std::vector<unsigned>> xbar_active_cycle;
+  std::vector<std::vector<unsigned>> xbar_tot_cycle;
   std::vector<std::vector<unsigned>> xbar_program_efficiency;
   std::vector<std::vector<unsigned>> xbar_executed_inst;
+
+  std::vector<unsigned> xbar_stall;
+  std::vector<unsigned> xbar_stall_inst;
 
   const pim_core_config *m_pim_config;
 
@@ -588,10 +585,6 @@ class pim_xbar : public simd_function_unit {
     total_activation = 0;
     sample_scale_factor = 1;
 
-    sampling = false;
-    computing = false;
-    programming = false;
-
     mapped = false;
     active = false;
     stall = true;
@@ -612,31 +605,7 @@ class pim_xbar : public simd_function_unit {
 
 
   virtual bool can_issue(const warp_inst_t &inst) const {
-    if (!m_dispatch_reg->empty()) {
-      return false;
-    }
-    // dispatch reg is free
-
-    // if (stall) {
-    //   return false;
-    // }
-
-    if (programming) {
-      // during programming, cannot do anything else
-      return false;
-    }
-    
-    if (inst.op == XBAR_SAMPLE_OP) {
-      return !(sampling || computing);
-    } else if (inst.op == XBAR_INTEGRATE_OP) {
-      return !computing;
-    } 
-
-    if (inst.op == EXIT_OPS) {
-      return !(sampling || computing || programming);
-    }
-
-    return true;
+    return m_dispatch_reg->empty();
   }
 
   virtual void cycle() {
@@ -706,14 +675,6 @@ class pim_xbar : public simd_function_unit {
     }
 
     if (!m_pipeline_reg[0]->empty()) {
-      if (m_pipeline_reg[0]->op == XBAR_SAMPLE_OP) {
-        sampling = false;
-      } else if (m_pipeline_reg[0]->op == XBAR_INTEGRATE_OP) {
-        computing = false;
-      } else if (m_pipeline_reg[0]->op == XBAR_PROGRAM_OP) {
-        programming = false;
-      }
-
       m_result_port->move_in(m_pipeline_reg[0]);
     }
   }
@@ -763,9 +724,9 @@ class pim_xbar : public simd_function_unit {
   std::deque<new_addr_type> regs_order;
   std::set<new_addr_type> regs_value;
 
-  bool sampling;
-  bool computing;
-  bool programming;
+  std::deque<new_addr_type> output_regs_order;
+  std::set<new_addr_type> output_regs_value;
+
   bool mapped;
   bool active;
   bool stall;

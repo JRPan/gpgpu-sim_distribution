@@ -395,7 +395,7 @@ void memory_partition_unit::set_dram_power_stats(
                                n_wr, n_wr_WB, n_req);
 }
 
-void memory_partition_unit::print(FILE *fp) const {
+void memory_partition_unit::print(FILE *fp) const {     
   fprintf(fp, "Memory Partition %u: \n", m_id);
   for (unsigned p = 0; p < m_config->m_n_sub_partition_per_memory_channel;
        p++) {

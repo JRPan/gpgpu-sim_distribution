@@ -28,7 +28,6 @@
 // CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
-
 #include "gpu-sim.h"
 
 #include <math.h>
@@ -732,6 +731,13 @@ void gpgpu_sim_config::reg_options(option_parser_t opp) {
   option_parser_register(opp, "-gpgpu_runtime_pending_launch_count_limit",
                          OPT_INT32, &runtime_pending_launch_count_limit,
                          "GPU device runtime pending launch count", "2048");
+  option_parser_register(opp, "-pim_relaunch", OPT_BOOL, &pim_relaunch,
+                         "restart PIM layer", "0");
+  if (pim_relaunch) {
+    pim_max_pass = 8;
+  } else {
+    pim_max_pass = 1;
+  }
   option_parser_register(opp, "-trace_enabled", OPT_BOOL, &Trace::enabled,
                          "Turn on traces", "0");
   option_parser_register(opp, "-trace_components", OPT_CSTR, &Trace::config_str,
@@ -792,24 +798,26 @@ void gpgpu_sim::launch(kernel_info_t *kinfo) {
 }
 
 void gpgpu_sim::launch_pim(std::vector<pim_layer *> layers) {
-
-  // if (layers.size() > 0) {
-  //   pim_active = true;
-  // }
-  unsigned n = 0;
   pim_finished_count = 0;
 
   // map layers
   for (auto layer : layers){
-    if (layer->type == INPUT) {
+    if (layer->type == pim_layer_type::INPUT) {
       m_activate_layers.insert(layer);
     }
+    bool issued = false;
     for (unsigned i = 0; i < m_shader_config->n_pim_clusters; i++) {
-      if (!m_pim_cluster[i]->full) {
-        bool issued = m_pim_cluster[i]->map_layer(layer);
-        if (issued) {
-          break;
-        }
+      issued = m_pim_cluster[i]->map_layer(layer);
+      if (issued) {
+        break;
+      }
+    }
+    if (layer->type == pim_layer_type::CONV || layer->type == pim_layer_type::MATMUL) {
+      if (!issued) {
+        printf("Error: layer not issued\n");
+        // assert(0); // TODO: corner case that layer > 1 core
+      } else {
+        printf("Layer %s issued\n", layer->name.c_str());
       }
     }
   }
@@ -1490,13 +1498,13 @@ void gpgpu_sim::gpu_print_stat() {
       mcpat_reset_perf_count(m_gpgpusim_wrapper);
   }
 #endif
-
+/*
   // performance counter that are not local to one shader
   m_memory_stats->memlatstat_print(m_memory_config->m_n_mem,
                                    m_memory_config->nbk);
   for (unsigned i = 0; i < m_memory_config->m_n_mem; i++)
     m_memory_partition_unit[i]->print(stdout);
-
+*/
   // L2 cache stats
   if (!m_memory_config->m_L2_config.disabled()) {
     cache_stats l2_stats;
@@ -2021,14 +2029,31 @@ void gpgpu_sim::cycle() {
     unsigned cycle = gpu_sim_cycle + gpu_tot_sim_cycle;
     for (auto layer : m_activate_layers) {
       printf("activating layer %s @ cycle %u\n", layer->name.c_str(), cycle);
-      layer->pending_next = layer->next_layers.size();
       layer->issued_next.clear();
       assert(layer->active == false);
       layer->active = true;
+      // debug
+      // if (layer->name == "Conv_0") {
+      //   for (auto next : layer->next_layers[0]->next_layers[0]->next_layers) {
+      //     for (auto xbar : next->m_xbars) {
+      //       assert(xbar->inst_queue.size() == 0);
 
-      if (layer->type == OUTPUT) {
+      //       xbar->active = true;
+      //       xbar->op_id = xbar->used_rows * xbar->xbar_row_id;
+      //       xbar->done_activation = 0;
+
+      //       if (xbar->programmed_rows != 0) {
+      //         assert(xbar->programmed_rows == xbar->used_rows);
+      //         xbar->m_status = XBAR_PROGRAMMED;
+      //       }
+      //       xbar->m_status = XBAR_PROGRAMMED;
+      //     }
+      //   }
+      // }
+
+      if (layer->type == pim_layer_type::OUTPUT) {
         pim_finished_count++;
-        if (pim_finished_count == 32) {
+        if (pim_finished_count == m_config.pim_max_pass) {
           printf("PIM finished\n");
           pim_active = false;
           break;  // finished
@@ -2049,7 +2074,11 @@ void gpgpu_sim::cycle() {
         perf_memcpy_to_gpu(input_addr, input_size);
 
         // recalculate im2col
-        layer->im2col(input_addr);
+        if (layer->type == pim_layer_type::CONV) {
+          layer->im2col(input_addr);
+        } else {
+          layer->input_addr = input_addr;
+        }
         layer->output_addr = output_addr;
 
         for (auto xbar : layer->m_xbars) {
@@ -2100,10 +2129,29 @@ void gpgpu_sim::cycle() {
         printf("finishing layer %s @ cycle %u\n", layer->name.c_str(), cycle);
         to_erase.insert(layer);
         layer->active = false;
-        print_stats();
 
-        if (layer->type == INPUT) {
-          m_activate_layers.insert(layer);
+        print_stats();
+        time_t current_time, difference, d, h, m, s;
+        current_time = time((time_t *)NULL);
+        difference = MAX(
+            current_time - gpgpu_ctx->the_gpgpusim->g_simulation_starttime, 1);
+
+        d = difference / (3600 * 24);
+        h = difference / 3600 - 24 * d;
+        m = difference / 60 - 60 * (h + 24 * d);
+        s = difference - 60 * (m + 60 * (h + 24 * d));
+
+        fflush(stderr);
+        printf(
+            "\n\ngpgpu_simulation_time = %u days, %u hrs, %u min, %u sec (%u "
+            "sec)\n",
+            (unsigned)d, (unsigned)h, (unsigned)m, (unsigned)s,
+            (unsigned)difference);
+
+        if (m_config.pim_relaunch) {
+          if (layer->type == pim_layer_type::INPUT) {
+            m_activate_layers.insert(layer);
+          }
         }
       }
     }

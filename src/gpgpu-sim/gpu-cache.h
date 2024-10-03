@@ -900,6 +900,7 @@ class cache_config {
   friend class l1_cache;
   friend class l2_cache;
   friend class memory_sub_partition;
+  friend class warp_inst_t;
 };
 
 class l1d_cache_config : public cache_config {
