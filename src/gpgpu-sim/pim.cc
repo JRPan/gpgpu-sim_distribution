@@ -12,17 +12,17 @@
 #include "gpu-misc.h"
 #include "gpu-sim.h"
 #include "icnt_wrapper.h"
-#include "pim_icnt_wrapper.h"
 #include "mem_fetch.h"
 #include "mem_latency_stat.h"
+#include "pim_icnt_wrapper.h"
 #include "shader.h"
 #include "shader_trace.h"
 #include "stat-tool.h"
 #include "traffic_breakdown.h"
 #include "visualizer.h"
 
-#include <unordered_set>
 #include <functional>
+#include <unordered_set>
 
 pim_core_ctx::pim_core_ctx(class gpgpu_sim *gpu,
                            class pim_core_cluster *cluster, unsigned shader_id,
@@ -46,22 +46,9 @@ pim_core_ctx::pim_core_ctx(class gpgpu_sim *gpu,
       gpu, NULL, -1, -1, m_config, m_memory_config, m_stats);
   dummy_shader->resize_shd_warp(m_pim_core_config->num_xbars);
   m_scoreboard = new Scoreboard(m_sid, m_pim_core_config->num_xbars, gpu);
-  m_ldst_unit =
-      new simple_ldst_unit(m_icnt, m_mem_fetch_allocator, m_config, m_memory_config,
-                           m_stats, m_sid, m_tpc, gpu, dummy_shader, this, m_scoreboard);
-  // m_cache = new simple_ldst_unit(
-  //     "L1D", gpu->getShaderCoreConfig()->m_L1D_config, shader_id,
-  //     get_shader_normal_cache_id(), m_icnt, m_mem_fetch_allocator,
-  //     IN_L1D_MISS_QUEUE, gpu, this);
-
-  // for (unsigned i = 0; i < m_pim_core_config->num_scratchpads; i++) {
-  //   char L1D_name[32];
-  //   snprintf(L1D_name, 32, "L1D_%03d", i);
-  //   m_scratchpads.push_back(new scratchpad(
-  //       L1D_name, gpu->getShaderCoreConfig()->m_L1D_config, shader_id,
-  //       get_shader_normal_cache_id(), m_icnt, m_mem_fetch_allocator,
-  //       IN_SCRATCHPAD, m_pim_core_config->scratchpad_size));
-  // }
+  m_ldst_unit = new simple_ldst_unit(m_icnt, m_mem_fetch_allocator, m_config,
+                                     m_memory_config, m_stats, m_sid, m_tpc,
+                                     gpu, dummy_shader, this, m_scoreboard);
   m_pim_stats = pim_stats;
 
   sent_bytes = 0;
@@ -101,8 +88,7 @@ void pim_core_ctx::execute() {
   //   *(m_result_bus[i]) >>= 1;
   // }
   for (unsigned n = 0; n < m_pim_core_config->num_xbars; n++) {
-    if (!m_xbars[n]->active) 
-      continue;
+    if (!m_xbars[n]->active) continue;
     unsigned multiplier = m_xbars[n]->clock_multiplier();
     for (unsigned c = 0; c < multiplier; c++) {
       m_xbars[n]->cycle();
@@ -138,7 +124,6 @@ void pim_core_ctx::execute() {
   if (issue_inst->has_ready() && m_ldst_unit->can_issue(**ready_reg)) {
     m_ldst_unit->issue(*issue_inst);
   }
-
 }
 
 void pim_core_ctx::control_cycle() {
@@ -151,12 +136,12 @@ void pim_core_ctx::control_cycle() {
   //   pim_xbar *xbar = m_xbars[xbar_id];
   //   xbar_id = (xbar_id + 1) % m_pim_core_config->num_xbars;
   for (auto xbar : m_xbars) {
-    if (!xbar->active) 
-      continue;
+    if (!xbar->active) continue;
     checked_xbars++;
     m_pim_stats->xbar_tot_cycle[get_pim_cluster_id()][xbar->m_xbar_id]++;
 
     if (xbar->m_status == XBAR_INITIATED) {
+      /*
       unsigned size = 32;
       for (unsigned row = 0; row < xbar->used_rows; row++) {
         unsigned byte_per_row = xbar->byte_per_row;
@@ -191,73 +176,27 @@ void pim_core_ctx::control_cycle() {
         xbar->inst_queue.push(inst);
       }
       xbar->m_status = XBAR_PROGRAM;
-    }
-    else if (xbar->m_status == XBAR_PROGRAM) {
-    }
-    else if (xbar->m_status == XBAR_PROGRAMMED) {
-      printf("core %u xbar %u start compute, %u\n", m_tpc, xbar->m_xbar_id, cycle);
+      */
+    } else if (xbar->m_status == XBAR_PROGRAM) {
+    } else if (xbar->m_status == XBAR_PROGRAMMED) {
+      printf("core %u xbar %u start compute, %u\n", m_tpc, xbar->m_xbar_id,
+             cycle);
       xbar->m_status = XBAR_COMPUTING;
-    }
-    else if (xbar->m_status == XBAR_COMPUTING) {
-      unsigned size = 32;
+    } else if (xbar->m_status == XBAR_COMPUTING) {
+      new_addr_type size = m_config->m_L1D_config.get_line_sz();
       unsigned input_repeat = m_pim_core_config->device_precision /
                               m_pim_core_config->dac_precision;
-                              
 
       unsigned counter = 0;
       while (xbar->op_id < xbar->m_layer->input_size) {
-      // while (xbar->op_id < xbar->m_layer->input_size && xbar->inst_queue.size() < 100) {
-        std::set<new_addr_type> addrs;
-        unsigned pending_loads = 0;
-        unsigned reg = 1;
-        for (unsigned j = 0; j < m_pim_core_config->row_activation_rate; j++) {
-          new_addr_type addr = xbar->m_layer->matmul_addr[xbar->op_id  + j];
-          // addr = addr & ~3; // align to 4B
-          if ((xbar->op_id + j) == xbar->m_layer->input_size) {
-            break;  // out of bound
-          }
-          if ((xbar->op_id + j) % xbar->used_rows == 0 && j != 0) {
-            assert(xbar->inst_queue.back()->op == XBAR_SAMPLE_OP);
-            warp_inst_t *inst = new warp_inst_t(m_config);
-            unsigned offset = (xbar->op_id % xbar->used_rows) *
-                              xbar->used_cols *
-                              m_pim_core_config->get_data_size_byte();
-            // TODO: correct offset?
-            new_addr_type addr = xbar->m_layer->output_addr + offset;
-            inst->op = STORE_OP;
-            inst->cache_op = CACHE_ALL;
-            inst->data_size = 1;
-            inst->set_addr(0, addr);
-            inst->space.set_type(global_space);
-            inst->pim_xbar_id = xbar->m_xbar_id;
-            inst->incount = 1;
-            inst->in[0] = xbar->inst_queue.back()->out[0];
-            xbar->inst_queue.push(inst);
-            break;  // out of bound
-          }
-          if (addr == 0) {
-            continue;
-          }
-          if (addrs.find(addr) == addrs.end()) {
-            addrs.insert(addr);
+        // while (xbar->op_id < xbar->m_layer->input_size &&
+        // xbar->inst_queue.size() < 100) {
 
-            // save to load queue
-            pending_loads++;
-          }
-        }
-
-        if (pending_loads != 0) {
-          warp_inst_t *inst = new warp_inst_t(m_config);
-          inst->op = PSEUDO_LD_OP;
-          inst->cache_op = CACHE_ALL;
-          // inst->data_size = 4;
-          inst->space.set_type(global_space);
-          inst->pim_xbar_id = xbar->m_xbar_id;
-          inst->outcount = 1;
-          inst->out[0] = reg; // load result
-          unsigned addr_count = 0;
+        std::set<new_addr_type> addrs = gen_addr(xbar);
+        if (addrs.size() != 0) {
           std::vector<new_addr_type> addr_needed;
           for (auto addr : addrs) {
+            addr = addr & ~(size - 1);
             if (xbar->regs_value.find(addr) == xbar->regs_value.end()) {
               if (xbar->regs_order.size() > m_pim_core_config->num_input_regs) {
                 xbar->regs_value.erase(xbar->regs_order.front());
@@ -267,16 +206,29 @@ void pim_core_ctx::control_cycle() {
               xbar->regs_value.insert(addr);
 
               addr_needed.push_back(addr);
-              addr_count++;
+              if (addr_needed.size() == m_config->m_L1D_config.l1_banks) {
+                warp_inst_t *inst = new warp_inst_t(m_config);
+                inst->op = PSEUDO_LD_OP;
+                inst->outcount = 1;
+                inst->out[0] = reg;
+                xbar->inst_queue.push(inst);
+                m_addr_map.insert(std::make_pair(inst, addr_needed));
+                addr_needed.clear();
+              }
             }
           }
-          if (addr_needed.size() == 0) {
-            delete inst;
-            inst = NULL;
-          } else {
+          if (addr_needed.size() != 0) {
+            warp_inst_t *inst = new warp_inst_t(m_config);
+            inst->op = PSEUDO_LD_OP;
+            inst->outcount = 1;
+            inst->out[0] = reg;
+
             xbar->inst_queue.push(inst);
             m_addr_map.insert(std::make_pair(inst, addr_needed));
           }
+
+          assert(xbar->inst_queue.back()->op == PSEUDO_LD_OP);
+          m_pivot_load.insert(xbar->inst_queue.back());
 
           for (unsigned k = 0; k < input_repeat; k++) {
             warp_inst_t *inst = new warp_inst_t(m_config);
@@ -285,8 +237,8 @@ void pim_core_ctx::control_cycle() {
             inst->incount = 1;
             inst->outcount = 1;
             inst->pim_xbar_id = xbar->m_xbar_id;
-            inst->in[0] = reg;  // load result
-            inst->out[0] = reg + 1; // integrate result
+            inst->in[0] = reg;       // load result
+            inst->out[0] = reg + 1;  // integrate result
             inst->ar1 = 0;
             inst->ar2 = 0;
             xbar->inst_queue.push(inst);
@@ -299,8 +251,8 @@ void pim_core_ctx::control_cycle() {
             inst->incount = 1;
             inst->outcount = 1;
             inst->pim_xbar_id = xbar->m_xbar_id;
-            inst->in[0] = reg + 1;  // integrate result
-            inst->out[0] = reg + 2; // sample result
+            inst->in[0] = reg + 1;   // integrate result
+            inst->out[0] = reg + 2;  // sample result
             inst->ar1 = 0;
             inst->ar2 = 0;
             xbar->inst_queue.push(inst);
@@ -308,8 +260,7 @@ void pim_core_ctx::control_cycle() {
         }
 
         // printf("xbar %u compiling op %u\n", xbar->m_xbar_id, xbar->op_id);
-        unsigned total_rows =
-            xbar->m_layer->global_height;
+        unsigned total_rows = xbar->m_layer->global_height;
         unsigned pos_x = xbar->op_id % total_rows;
         unsigned pos_y = xbar->op_id / total_rows;
 
@@ -325,8 +276,27 @@ void pim_core_ctx::control_cycle() {
           xbar->op_id += m_pim_core_config->row_activation_rate;
         }
 
+        const bool enable_write = false;
+        if ((xbar->op_id) % (xbar->used_rows) == 0 && enable_write) {
+          assert(xbar->inst_queue.back()->op == XBAR_SAMPLE_OP);
+          warp_inst_t *inst = new warp_inst_t(m_config);
+          unsigned offset = (xbar->op_id % xbar->used_rows) * xbar->used_cols *
+                            m_pim_core_config->get_data_size_byte();
+          // TODO: correct offset?
+          new_addr_type addr = xbar->m_layer->output_addr + offset;
+          inst->op = STORE_OP;
+          inst->cache_op = CACHE_ALL;
+          inst->data_size = 1;
+          inst->set_addr(0, addr);
+          inst->space.set_type(global_space);
+          inst->pim_xbar_id = xbar->m_xbar_id;
+          inst->incount = 1;
+          inst->in[0] = xbar->inst_queue.back()->out[0];
+          xbar->inst_queue.push(inst);
+        }
+
         if (xbar->op_id >= xbar->m_layer->input_size) {
-        // if (xbar->op_id >= 200) {
+          // if (xbar->op_id >= 200) {
           // last op is exit
           warp_inst_t *inst = new warp_inst_t(m_config);
           inst->op = EXIT_OPS;
@@ -337,9 +307,8 @@ void pim_core_ctx::control_cycle() {
         }
       }
 
-      counter++; // gdb breakpoint - not really adding 1
-    }
-    else if (xbar->m_status == XBAR_DONE) {
+      counter++;  // gdb breakpoint - not really adding 1
+    } else if (xbar->m_status == XBAR_DONE) {
       std::vector<pim_xbar *> layer_xbars = xbar->m_layer->m_xbars;
       bool all_done = true;
       for (auto xbar : layer_xbars) {
@@ -351,11 +320,11 @@ void pim_core_ctx::control_cycle() {
 
       if (all_done) {
         m_gpu->m_finished_layers.insert(xbar->m_layer);
-            for (auto c_bar : layer_xbars) {
-              assert(c_bar->inst_queue.size() == 0);
+        for (auto c_bar : layer_xbars) {
+          assert(c_bar->inst_queue.size() == 0);
 
-              c_bar->active = false;
-            }
+          c_bar->active = false;
+        }
       }
     }
   }
@@ -372,49 +341,53 @@ void pim_core_ctx::issue() {
     assert(xbar_id < m_pim_core_config->num_xbars);
     pim_xbar *xbar = m_xbars[xbar_id];
     xbar_id = (xbar_id + 1) % m_pim_core_config->num_xbars;
-    if (!xbar->active) 
-      continue;
+    if (!xbar->active) continue;
 
     // inst queue -> pipeline register
     if (xbar->inst_queue.size() > 0) {
       bool issued = false;
       warp_inst_t *inst = xbar->inst_queue.front();
       switch (inst->op) {
-        case PSEUDO_LD_OP:  // load but addrs need to be merged
-          if (m_scoreboard->checkCollision(xbar->m_xbar_id, inst) == false) {
-            std::set<new_addr_type> pending_addrs;
-            if (m_ldst_reg[0]->has_free()) {
-              for (auto addr : m_addr_map[inst]) {
-                if (addrs_to_issue.find(addr) == addrs_to_issue.end()) {
-                  pending_addrs.insert(addr);
-                }
-              }
-              if (addrs_to_issue.size() + pending_addrs.size() <=
-                  m_config->m_L1D_config.l1_banks) {
-                merged_xbars.push_back(xbar->m_xbar_id);
-                for (auto addr : pending_addrs) {
-                  assert(addrs_to_issue.find(addr) == addrs_to_issue.end());
-                  addrs_to_issue.insert(addr);
-                }
-                inst->issue(
-                    active_mask_t().set(), xbar->m_xbar_id,
-                    get_gpu()->gpu_sim_cycle + get_gpu()->gpu_tot_sim_cycle, 0,
-                    0);
-                m_scoreboard->reserveRegisters(inst);
-                m_addr_map.erase(inst);
-                issued = true;
-              } else {
-                ld_full = true;
+        case PSEUDO_LD_OP: {  // load but addrs need to be merged
+          assert(m_scoreboard->checkCollision(xbar->m_xbar_id, inst) == false);
+          std::set<new_addr_type> pending_addrs;
+          if (m_ldst_reg[0]->has_free()) {
+            for (auto addr : m_addr_map[inst]) {
+              if (addrs_to_issue.find(addr) == addrs_to_issue.end()) {
+                pending_addrs.insert(addr);
               }
             }
-          } else {
-            assert(0 && "load does not have dependency");
+            if (addrs_to_issue.size() + pending_addrs.size() <=
+                m_config->m_L1D_config.l1_banks) {
+              merged_xbars.push_back(xbar->m_xbar_id);
+              for (auto addr : pending_addrs) {
+                assert(addrs_to_issue.find(addr) == addrs_to_issue.end());
+                addrs_to_issue.insert(addr);
+              }
+              inst->issue(
+                  active_mask_t().set(), xbar->m_xbar_id,
+                  get_gpu()->gpu_sim_cycle + get_gpu()->gpu_tot_sim_cycle, 0,
+                  0);
+              assert(inst->outcount > 0);
+              if (m_pivot_load.find(inst) != m_pivot_load.end()) {
+                m_scoreboard->reserveRegisters(inst);
+                m_pivot_load.erase(inst);
+              }
+              m_addr_map.erase(inst);
+              issued = true;
+            } else {
+              ld_full = true;
+            }
           }
           break;
+        }
         case STORE_OP:
           if (m_scoreboard->checkCollision(xbar->m_xbar_id, inst) == false) {
             if (addrs_to_issue.empty()) {
               issued = issue_mem(inst, active_mask_t().set(0));
+              if (issued) {
+                m_scoreboard->reserveRegisters(inst);
+              }
             } else {
               m_pim_stats->xbar_stall[XBAR_STALL_LD_ST_CONFLICT]++;
             }
@@ -436,7 +409,7 @@ void pim_core_ctx::issue() {
                   -1);
               m_scoreboard->reserveRegisters(*pipe_reg);
               issued = true;
-            } 
+            }
           } else {
           }
           break;
@@ -448,10 +421,7 @@ void pim_core_ctx::issue() {
         delete inst;
         inst = NULL;
         xbar->inst_queue.pop();
-      } else {
-        m_pim_stats->xbar_stall_inst[inst->op]++;
       }
-
     }
 
     // pipeline register -> xbar
@@ -475,7 +445,6 @@ void pim_core_ctx::issue() {
     inst->out[0] = 1;
     inst->ar1 = 0;
     inst->ar2 = 0;
-    
 
     unsigned index = 0;
     // printf("load addr ");
@@ -503,16 +472,14 @@ void pim_core_ctx::issue() {
 void pim_core_ctx::commit() {
   unsigned cycle = get_gpu()->gpu_sim_cycle + get_gpu()->gpu_tot_sim_cycle;
   for (unsigned n = 0; n < m_pim_core_config->num_xbars; n++) {
-    if (!m_xbars[n]->active) 
-      continue;
+    if (!m_xbars[n]->active) continue;
     if (m_result_reg[n]->has_ready()) {
       warp_inst_t **ready_reg = m_result_reg[n]->get_ready();
       m_scoreboard->releaseRegisters(*ready_reg);
       (*ready_reg)->clear();
-      m_pim_stats->xbar_executed_inst[m_tpc-m_config->n_simt_clusters][n]++;
+      m_pim_stats->xbar_executed_inst[m_tpc - m_config->n_simt_clusters][n]++;
 
       if ((*ready_reg)->op == XBAR_PROGRAM_OP) {
-
         // printf("xbar %u finished programming %u, %u\n", n,
         //        m_xbars[n]->programmed_rows, cycle);
 
@@ -522,17 +489,18 @@ void pim_core_ctx::commit() {
           m_xbars[n]->m_status = XBAR_PROGRAMMED;
         }
       } else if ((*ready_reg)->op == XBAR_INTEGRATE_OP) {
-        if (n == 0)
-          printf("xbar %u done computing, %u, \n",n , cycle);
+        // if (n == 0 && m_tpc == 80)
+        // printf("xbar %u done computing, %u, \n", n, cycle);
       } else if ((*ready_reg)->op == XBAR_SAMPLE_OP) {
-        if (n == 0)
-          printf("xbar %u done sampling, %u, %u\n", n, cycle, m_xbars[n]->done_activation);
-        if(m_xbars[n]->done_activation % 10000 == 0) {
+        m_xbars[n]->done_activation++;
+        // if (n == 0 && m_tpc == 80)
+        // printf("xbar %u done sampling, %u, %u\n", n, cycle,
+        //  m_xbars[n]->done_activation);
+        if (m_xbars[n]->done_activation % 10000 == 0) {
           printf("core %u xbar %u done sampling, %u, %u\n", m_tpc, n,
                  m_xbars[n]->done_activation, cycle);
           fflush(stdout);
         }
-        m_xbars[n]->done_activation++;
       } else if ((*ready_reg)->op == EXIT_OPS) {
         printf("core %u xbar %u done layer, %u\n", m_tpc, n, cycle);
         m_xbars[n]->m_status = XBAR_DONE;
@@ -545,12 +513,27 @@ bool pim_core_ctx::response_buffer_full() const {
   return m_response_fifo.size() >= m_config->n_simt_ejection_buffer_size;
 }
 
-void pim_core_ctx::accept_response(mem_fetch *mf) { 
-  m_ldst_unit->fill(mf); 
-}
+void pim_core_ctx::accept_response(mem_fetch *mf) { m_ldst_unit->fill(mf); }
 
-void pim_core_ctx::ldst_cycle() {
-  m_ldst_unit->cycle();
+void pim_core_ctx::ldst_cycle() { m_ldst_unit->cycle(); }
+
+std::set<new_addr_type> pim_core_ctx::gen_addr(pim_xbar *xbar) {
+  std::set<new_addr_type> addrs;
+  for (unsigned j = 0; j < m_pim_core_config->row_activation_rate; j++) {
+    new_addr_type addr = xbar->m_layer->matmul_addr[xbar->op_id + j];
+    // addr = addr & ~3; // align to 4B
+    if ((xbar->op_id + j) == xbar->m_layer->input_size) {
+      break;  // out of bound
+    }
+    if (addr == 0) {
+      continue;
+    }
+    if (addrs.find(addr) == addrs.end()) {
+      addrs.insert(addr);
+    }
+  }
+
+  return addrs;
 }
 
 void pim_core_cluster::ldst_cycle() {
@@ -704,6 +687,12 @@ void pim_xbar::issue(register_set &source_reg) {
 bool pim_core_cluster::map_layer(pim_layer *layer) {
   for (unsigned i = 0; i < m_config->n_pim_cores_per_cluster; i++) {
     bool issued = false;
+    if (layer->name.find("query") == std::string::npos &&
+        layer->name.find("key") == std::string::npos &&
+        layer->name.find("value") == std::string::npos) {
+      return false;
+    }
+
     if (layer->type == pim_layer_type::CONV) {
       issued = m_core[i]->map_layer_conv2d(layer);
     } else if (layer->type == pim_layer_type::MATMUL) {
@@ -780,11 +769,11 @@ bool pim_core_ctx::map_layer_conv2d(pim_layer *layer) {
 
   std::vector<unsigned> xbars;
 
-  unsigned row_per_xbar = std::ceil((float) rows_total / xbar_row_used);
+  unsigned row_per_xbar = std::ceil((float)rows_total / xbar_row_used);
   assert(row_per_xbar <= m_pim_core_config->xbar_size_y);
 
-  unsigned col_per_xbar = std::ceil((float) cols_total / xbar_col_used);
-assert(col_per_xbar <= m_pim_core_config->xbar_size_x);
+  unsigned col_per_xbar = std::ceil((float)cols_total / xbar_col_used);
+  assert(col_per_xbar <= m_pim_core_config->xbar_size_x);
 
   for (unsigned slice_index = 0;
        slice_index < m_pim_core_config->num_device_per_weight();
@@ -796,7 +785,8 @@ assert(col_per_xbar <= m_pim_core_config->xbar_size_x);
       for (unsigned xbar_row_index = 0; xbar_row_index < xbar_row_used;
            xbar_row_index++) {
         pim_xbar *xbar = next_avail_xbar();
-        printf("layer %s mapped to core %u xbar %u\n", layer->name.c_str(), m_tpc, xbar->m_xbar_id);
+        printf("layer %s mapped to core %u xbar %u\n", layer->name.c_str(),
+               m_tpc, xbar->m_xbar_id);
 
         xbar->used_cols = col_per_xbar;
         xbar->used_rows = row_per_xbar;
@@ -907,11 +897,11 @@ bool pim_core_ctx::map_layer_linear(pim_layer *layer) {
 
   std::vector<unsigned> xbars;
 
-  unsigned row_per_xbar = std::ceil((float) rows_total / xbar_row_used);
+  unsigned row_per_xbar = std::ceil((float)rows_total / xbar_row_used);
   assert(row_per_xbar <= m_pim_core_config->xbar_size_y);
 
-  unsigned col_per_xbar = std::ceil((float) cols_total / xbar_col_used);
-assert(col_per_xbar <= m_pim_core_config->xbar_size_x);
+  unsigned col_per_xbar = std::ceil((float)cols_total / xbar_col_used);
+  assert(col_per_xbar <= m_pim_core_config->xbar_size_x);
 
   for (unsigned slice_index = 0;
        slice_index < m_pim_core_config->num_device_per_weight();
@@ -923,7 +913,8 @@ assert(col_per_xbar <= m_pim_core_config->xbar_size_x);
       for (unsigned xbar_row_index = 0; xbar_row_index < xbar_row_used;
            xbar_row_index++) {
         pim_xbar *xbar = next_avail_xbar();
-        printf("layer %s mapped to core %u xbar %u\n", layer->name.c_str(), m_tpc, xbar->m_xbar_id);
+        printf("layer %s mapped to core %u xbar %u\n", layer->name.c_str(),
+               m_tpc, xbar->m_xbar_id);
 
         // xbar->output.addr = output_addr;
         // xbar->output.size = output_size;
@@ -1004,10 +995,6 @@ bool pim_core_ctx::issue_mem(warp_inst_t *inst, active_mask_t active_mask) {
                        0, 0);
     (*pipe_reg)->generate_mem_accesses();
     // (*pipe_reg)->print_m_accessq();
-    if (inst->op == STORE_OP) {
-      m_scoreboard->reserveRegisters(*pipe_reg);
-    }
-    // assert((*pipe_reg)->accessq_count() == 1);
 
     return true;
   }
@@ -1016,14 +1003,15 @@ bool pim_core_ctx::issue_mem(warp_inst_t *inst, active_mask_t active_mask) {
 
 void pim_core_ctx::writeback(warp_inst_t *inst) {
   assert(inst->op == XBAR_SAMPLE_OP);
-
 }
 
 void pim_core_ctx::create_exec_pipeline() {
   unsigned total_pipeline_stages = 1;
   for (unsigned j = 0; j < m_pim_core_config->num_xbars; j++) {
-    m_issue_reg.push_back( new register_set(total_pipeline_stages, "XBAR_ISSUE"));
-    m_result_reg.push_back(new register_set(total_pipeline_stages, "XBAR_RESULT"));
+    m_issue_reg.push_back(
+        new register_set(total_pipeline_stages, "XBAR_ISSUE"));
+    m_result_reg.push_back(
+        new register_set(total_pipeline_stages, "XBAR_RESULT"));
   }
   m_ldst_reg.push_back(new register_set(total_pipeline_stages, "LDST"));
   num_result_bus = m_pim_core_config->num_xbars;
@@ -1045,7 +1033,6 @@ void pim_core_ctx::get_cache_stats(cache_stats &cs) {
 }
 
 void pim_core_stats::print(FILE *fout, unsigned long long tot_cycle) const {
-
   // for (unsigned tpc = 0; tpc < xbar_program_efficiency.size(); tpc++) {
   //   for (unsigned i = 0; i < xbar_program_efficiency[tpc].size(); i++) {
   //     if (xbar_program_efficiency[tpc][i] == 0) continue;
@@ -1079,14 +1066,6 @@ void pim_core_stats::print(FILE *fout, unsigned long long tot_cycle) const {
     fprintf(fout, "xbar_stall[%u]: %u\n", reason, xbar_stall[reason]);
   }
   fprintf(fout, "\n");
-
-  for (unsigned inst = 0; inst < xbar_stall_inst.size(); inst++) {
-    if (xbar_stall_inst[inst] == 0) continue;
-    fprintf(fout, "xbar_stall_inst[%u]: %u\n", inst, xbar_stall_inst[inst]);
-  }
-  fprintf(fout, "\n");
-
-
 }
 
 void simple_ldst_unit::cycle() {
@@ -1111,15 +1090,15 @@ void simple_ldst_unit::cycle() {
       if (CACHE_GLOBAL == mf->get_inst().cache_op || (m_L1D == NULL)) {
         bypassL1D = true;
       } else if (mf->get_access_type() == GLOBAL_ACC_R ||
-                  mf->get_access_type() ==
-                      GLOBAL_ACC_W) {  // global memory access
+                 mf->get_access_type() ==
+                     GLOBAL_ACC_W) {  // global memory access
         if (m_core->get_config()->gmem_skip_L1D) bypassL1D = true;
       }
       if (bypassL1D) {
         if (m_next_global == NULL) {
           mf->set_status(IN_SHADER_FETCHED,
-                          m_core->get_gpu()->gpu_sim_cycle +
-                              m_core->get_gpu()->gpu_tot_sim_cycle);
+                         m_core->get_gpu()->gpu_sim_cycle +
+                             m_core->get_gpu()->gpu_tot_sim_cycle);
           m_response_fifo.pop_front();
           m_next_global = mf;
         }
@@ -1170,7 +1149,7 @@ void simple_ldst_unit::cycle() {
                 m_pending_writes[xbar_id].erase(reg_id);
               }
             }
-        }
+          }
         }
       }
       if (!pending_requests) {
@@ -1182,7 +1161,6 @@ void simple_ldst_unit::cycle() {
             }
           }
         }
-        
       }
       // m_core->dec_inst_in_pipeline(warp_id);
       m_dispatch_reg->clear();
@@ -1230,8 +1208,7 @@ void simple_ldst_unit::writeback() {
         std::vector<unsigned> multicast_xbars = m_next_wb.m_multicast_xbars;
         if (m_next_wb.space.get_type() != shared_space) {
           for (auto xbar_id : multicast_xbars) {
-            assert(m_pending_writes[xbar_id][m_next_wb.out[r]] >
-                   0);
+            assert(m_pending_writes[xbar_id][m_next_wb.out[r]] > 0);
             unsigned still_pending =
                 --m_pending_writes[xbar_id][m_next_wb.out[r]];
             if (!still_pending) {
@@ -1250,12 +1227,11 @@ void simple_ldst_unit::writeback() {
       }
     }
     if (insn_completed) {
-      
     }
 
-      m_next_wb.clear();
-      m_last_inst_gpu_sim_cycle = m_core->get_gpu()->gpu_sim_cycle;
-      m_last_inst_gpu_tot_sim_cycle = m_core->get_gpu()->gpu_tot_sim_cycle;
+    m_next_wb.clear();
+    m_last_inst_gpu_sim_cycle = m_core->get_gpu()->gpu_sim_cycle;
+    m_last_inst_gpu_tot_sim_cycle = m_core->get_gpu()->gpu_tot_sim_cycle;
   }
   if (m_L1D && m_L1D->access_ready() && m_next_wb.empty()) {
     mem_fetch *mf = m_L1D->next_access();
@@ -1263,7 +1239,6 @@ void simple_ldst_unit::writeback() {
     delete mf;
   }
 }
-
 
 void simple_ldst_unit::L1_latency_queue_cycle() {
   for (unsigned int j = 0; j < m_config->m_L1D_config.l1_banks; j++) {
@@ -1349,53 +1324,55 @@ void simple_ldst_unit::L1_latency_queue_cycle() {
 }
 
 void pim_layer::im2col(new_addr_type addr) {
-    int new_height = (H + 2 * pad_h - R) / stride_h + 1;
-    assert(new_height == (int)P);
-    int new_width = (W + 2 * pad_w - S) / stride_w + 1;
-    assert(new_width == (int)Q);
+  int new_height = (H + 2 * pad_h - R) / stride_h + 1;
+  assert(new_height == (int)P);
+  int new_width = (W + 2 * pad_w - S) / stride_w + 1;
+  assert(new_width == (int)Q);
 
-    std::vector<new_addr_type> output;
-    output.resize(N * new_height * new_width * C * R * S);
-    std::vector<new_addr_type> input;
-    input.resize(N * C * H * W);
-    for (unsigned i = 0; i < N * C * H * W; ++i) {
-      // instead of data, save addr
-      input[i] = addr + i;
-    }
+  std::vector<new_addr_type> output;
+  output.resize(N * new_height * new_width * C * R * S);
+  std::vector<new_addr_type> input;
+  input.resize(N * C * H * W);
+  for (unsigned i = 0; i < N * C * H * W; ++i) {
+    // instead of data, save addr
+    input[i] = addr + i;
+  }
 
-    for (int n = 0; n < (int)N; ++n) {
-      for (int h = 0; h < (int)new_height; ++h) {
-        for (int w = 0; w < (int)new_width; ++w) {
-          for (int c = 0; c < (int)C; ++c) {
-            for (int i = 0; i < (int)R; ++i) {
-              for (int j = 0; j < (int)S; ++j) {
-                int h_pad = h * stride_h + i - pad_h;
-                int w_pad = w * stride_w + j - pad_w;
-                unsigned out_index = n * new_height * new_width * C * R * S +
-                         h * new_width * C * R * S +
-                         w * C * R * S + c * R * S +
-                         i * S + j;  // for loop order
+  for (int n = 0; n < (int)N; ++n) {
+    for (int h = 0; h < (int)new_height; ++h) {
+      for (int w = 0; w < (int)new_width; ++w) {
+        for (int c = 0; c < (int)C; ++c) {
+          for (int i = 0; i < (int)R; ++i) {
+            for (int j = 0; j < (int)S; ++j) {
+              int h_pad = h * stride_h + i - pad_h;
+              int w_pad = w * stride_w + j - pad_w;
+              unsigned out_index = n * new_height * new_width * C * R * S +
+                                   h * new_width * C * R * S + w * C * R * S +
+                                   c * R * S + i * S + j;  // for loop order
 
-                if (h_pad >= 0 && h_pad < (int)H && w_pad >= 0 && w_pad < (int)W) {
-                  output[out_index] =
-                      // input[n * C * H * W + c * H * W + h_pad * W + w_pad]; // NCHW
-                      input[n * H * W * C + h_pad * W * C + w_pad * C + c]; // NHWC
-                } else {
-                  output[out_index] = 0;
-                }
-                // printf("%-8llu ", output[out_index]);
+              if (h_pad >= 0 && h_pad < (int)H && w_pad >= 0 &&
+                  w_pad < (int)W) {
+                output[out_index] =
+                    // input[n * C * H * W + c * H * W + h_pad * W + w_pad]; //
+                    // NCHW
+                    input[n * H * W * C + h_pad * W * C + w_pad * C +
+                          c];  // NHWC
+              } else {
+                output[out_index] = 0;
               }
-              // printf("\n");
+              // printf("%-8llu ", output[out_index]);
             }
             // printf("\n");
           }
           // printf("\n");
         }
+        // printf("\n");
       }
     }
-    matmul_addr = output;
-    input_size = N * new_height * new_width * C * R * S;
   }
+  matmul_addr = output;
+  input_size = N * new_height * new_width * C * R * S;
+}
 
 void pim_layer::gemm(new_addr_type addr) {
   matmul_addr = std::vector<new_addr_type>(N * C * H * W);

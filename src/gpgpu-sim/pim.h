@@ -1,18 +1,19 @@
 // Copyright (c) 2009-2021, Tor M. Aamodt, Wilson W.L. Fung, Andrew Turner,
-// Ali Bakhoda, Vijay Kandiah, Nikos Hardavellas, 
+// Ali Bakhoda, Vijay Kandiah, Nikos Hardavellas,
 // Mahmoud Khairy, Junrui Pan, Timothy G. Rogers
-// The University of British Columbia, Northwestern University, Purdue University
-// All rights reserved.
+// The University of British Columbia, Northwestern University, Purdue
+// University All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are met:
 //
-// 1. Redistributions of source code must retain the above copyright notice, this
+// 1. Redistributions of source code must retain the above copyright notice,
+// this
 //    list of conditions and the following disclaimer;
 // 2. Redistributions in binary form must reproduce the above copyright notice,
 //    this list of conditions and the following disclaimer in the documentation
 //    and/or other materials provided with the distribution;
-// 3. Neither the names of The University of British Columbia, Northwestern 
+// 3. Neither the names of The University of British Columbia, Northwestern
 //    University nor the names of their contributors may be used to
 //    endorse or promote products derived from this software without specific
 //    prior written permission.
@@ -29,7 +30,6 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-
 #ifndef PIM_H
 #define PIM_H
 
@@ -42,22 +42,22 @@
 #include <deque>
 #include <list>
 #include <map>
+#include <queue>
 #include <set>
+#include <unordered_map>
 #include <utility>
 #include <vector>
-#include <unordered_map>
-#include <queue>
 
 #include "../abstract_hardware_model.h"
 #include "delayqueue.h"
 #include "dram.h"
 #include "gpu-cache.h"
 #include "mem_fetch.h"
+#include "pim_icnt_wrapper.h"
 #include "scoreboard.h"
+#include "shader.h"
 #include "stack.h"
 #include "stats.h"
-#include "shader.h"
-#include "pim_icnt_wrapper.h"
 
 class pim_xbar;
 class simple_ldst_unit;
@@ -81,7 +81,7 @@ enum pim_data_type {
 
 enum class pim_layer_type {
   CONV = 1,
-  CONV2D, // to be removed
+  CONV2D,  // to be removed
   LINEAR,
   INPUT,
   RELU,
@@ -119,7 +119,7 @@ enum xbar_stall {
 
 class buffer {
  public:
- buffer() {
+  buffer() {
     addr = 0;
     size = 0;
   }
@@ -176,7 +176,6 @@ class pim_layer {
   }
   void im2col(new_addr_type addr);
   void gemm(new_addr_type addr);
-
 
   std::string name;
   unsigned N;
@@ -257,6 +256,7 @@ class pim_core_ctx : public core_t {
   pim_core_config *get_pim_core_config() { return m_pim_core_config; }
   void get_L1D_sub_stats(struct cache_sub_stats &css) const;
   void get_cache_stats(cache_stats &cs);
+
  protected:
   pim_core_config *m_pim_core_config;
 
@@ -274,11 +274,10 @@ class pim_core_ctx : public core_t {
   void get_pdom_stack_top_info(unsigned tid, unsigned *pc, unsigned *rpc) const;
   float get_current_occupancy(unsigned long long &active,
                               unsigned long long &total) const;
-                              
+
   virtual void issue_warp(register_set &warp, const warp_inst_t *pI,
                           const active_mask_t &active_mask, unsigned warp_id,
                           unsigned sch_id);
-
 
   // pure virtual methods implemented based on the current execution mode
   // (execution-driven vs trace-driven)
@@ -297,7 +296,6 @@ class pim_core_ctx : public core_t {
                                    gpgpu_t *gpu) = 0;
 
   virtual void create_shd_warp() = 0;
-  
 
   virtual const warp_inst_t *get_next_inst(unsigned warp_id,
                                            address_type pc) = 0;
@@ -308,9 +306,7 @@ class pim_core_ctx : public core_t {
   bool map_layer_conv2d(pim_layer *layer);
   bool map_layer_linear(pim_layer *layer);
 
-  unsigned get_pim_cluster_id() {
-    return m_tpc - m_config->n_simt_clusters;
-  }
+  unsigned get_pim_cluster_id() { return m_tpc - m_config->n_simt_clusters; }
 
   pim_xbar *next_avail_xbar();
 
@@ -328,6 +324,7 @@ class pim_core_ctx : public core_t {
   std::vector<register_set *> m_result_reg;
   std::vector<register_set *> m_ldst_reg;
   std::unordered_map<warp_inst_t *, std::vector<new_addr_type>> m_addr_map;
+  std::set<warp_inst_t *> m_pivot_load;
 
   // statistics
   shader_core_stats *m_stats;
@@ -338,10 +335,11 @@ class pim_core_ctx : public core_t {
 
   unsigned mf_size = 32;
   std::vector<pim_layer *> m_running_layers;
-//  private:
+  //  private:
   unsigned sent_bytes;
   unsigned used_xbars;
-  
+  const unsigned reg = 1;
+
   simple_ldst_unit *m_ldst_unit;
   std::list<mem_fetch *> m_response_fifo;
   unsigned m_pending_loads;
@@ -349,8 +347,8 @@ class pim_core_ctx : public core_t {
   std::vector<pim_xbar *> m_xbars;
   unsigned last_checked_xbar;
   std::vector<scratchpad *> m_scratchpads;
-  // new_addr_type weight_addr = 0xffff7fffffffffff;
-  // new_addr_type input_addr =  0xffff8fffffffffff;
+
+  std::set<new_addr_type> gen_addr(pim_xbar *xbar);
 };
 
 class pim_core_cluster : public simt_core_cluster {
@@ -358,7 +356,8 @@ class pim_core_cluster : public simt_core_cluster {
   pim_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
                    const shader_core_config *config,
                    const memory_config *mem_config, shader_core_stats *stats,
-                   memory_stats_t *mstats, pim_core_config *pim_config, pim_core_stats *pim_stats)
+                   memory_stats_t *mstats, pim_core_config *pim_config,
+                   pim_core_stats *pim_stats)
       : simt_core_cluster(gpu, cluster_id, config, mem_config, stats, mstats) {
     m_pim_config = pim_config;
     m_pim_stats = pim_stats;
@@ -387,11 +386,11 @@ class pim_core_cluster : public simt_core_cluster {
   }
   // virtual void create_pim_core_ctx() = 0;
 
-//  protected:
-//   unsigned m_cluster_id;
-//   const shader_core_config *m_config;
-//   shader_core_stats *m_stats;
-//   memory_stats_t *m_memory_stats;
+  //  protected:
+  //   unsigned m_cluster_id;
+  //   const shader_core_config *m_config;
+  //   shader_core_stats *m_stats;
+  //   memory_stats_t *m_memory_stats;
   pim_core_ctx **m_core;
   std::list<mem_fetch *> m_response_fifo;
 
@@ -399,32 +398,25 @@ class pim_core_cluster : public simt_core_cluster {
   pim_core_stats *m_pim_stats;
 };
 
-
 class pim_core_config {
  public:
   pim_core_config(gpgpu_context *ctx) {
-    num_xbars = 256;
+    num_xbars = 150;
     xbar_size_x = 128;
     xbar_size_y = 128;
     adc_count = 2;
-    adc_precision = 4;
+    adc_precision = 4;  // not used yet
     dac_precision = 1;
     row_activation_rate = 128;
 
     program_latency = 5;
     integrate_latency = 5;
-    sample_latency = 5;
+    sample_latency = 256;
 
     device_precision = 2;
 
-    num_scratchpads = 4;
-    scratchpad_size = 1024;
-  
-    gpgpu_ctx = ctx; 
+    gpgpu_ctx = ctx;
     data_type = INT8_TYPE;
-
-    num_input_regs = 256;
-    num_output_regs = 256;
   }
 
   void init() {}
@@ -449,10 +441,8 @@ class pim_core_config {
   unsigned dac_precision;
   unsigned row_activation_rate;
   unsigned num_scratchpads;
-  unsigned scratchpad_size;
   unsigned num_input_regs;
   unsigned num_output_regs;
-
 };
 
 class pim_memory_interface : public mem_fetch_interface {
@@ -476,7 +466,8 @@ class pim_memory_interface : public mem_fetch_interface {
 
 // class xbar_memory_interface : public mem_fetch_interface {
 //  public:
-//   xbar_memory_interface(pim_core_ctx *core, pim_core_cluster *cluster, pim_xbar *xbar) {
+//   xbar_memory_interface(pim_core_ctx *core, pim_core_cluster *cluster,
+//   pim_xbar *xbar) {
 //     m_core = core;
 //     m_cluster = cluster;
 //     m_xbar = xbar;
@@ -509,15 +500,24 @@ class pim_core_stats : public shader_core_stats {
                  const shader_core_config *shader_config)
       : shader_core_stats(shader_config) {
     m_pim_config = pim_config;
-    input_loads_sent.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
-    xbar_device_used.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
-    xbar_integrate_count.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
-    xbar_program_cycle.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
-    xbar_sample_cycle.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
-    xbar_active_cycle.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
-    xbar_tot_cycle.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
-    xbar_program_efficiency.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
-    xbar_executed_inst.resize(shader_config->n_pim_clusters, std::vector<unsigned>());
+    input_loads_sent.resize(shader_config->n_pim_clusters,
+                            std::vector<unsigned>());
+    xbar_device_used.resize(shader_config->n_pim_clusters,
+                            std::vector<unsigned>());
+    xbar_integrate_count.resize(shader_config->n_pim_clusters,
+                                std::vector<unsigned>());
+    xbar_program_cycle.resize(shader_config->n_pim_clusters,
+                              std::vector<unsigned>());
+    xbar_sample_cycle.resize(shader_config->n_pim_clusters,
+                             std::vector<unsigned>());
+    xbar_active_cycle.resize(shader_config->n_pim_clusters,
+                             std::vector<unsigned>());
+    xbar_tot_cycle.resize(shader_config->n_pim_clusters,
+                          std::vector<unsigned>());
+    xbar_program_efficiency.resize(shader_config->n_pim_clusters,
+                                   std::vector<unsigned>());
+    xbar_executed_inst.resize(shader_config->n_pim_clusters,
+                              std::vector<unsigned>());
 
     for (unsigned i = 0; i < shader_config->n_pim_clusters; i++) {
       input_loads_sent[i].resize(pim_config->num_xbars, 0);
@@ -532,7 +532,6 @@ class pim_core_stats : public shader_core_stats {
     }
 
     xbar_stall.resize(XBAR_STALL_NUM, 0);
-    xbar_stall_inst.resize(NUM_UARCH_OP, 0);
   }
 
   void print(FILE *fout, unsigned long long tot_cycle) const;
@@ -548,7 +547,6 @@ class pim_core_stats : public shader_core_stats {
   std::vector<std::vector<unsigned>> xbar_executed_inst;
 
   std::vector<unsigned> xbar_stall;
-  std::vector<unsigned> xbar_stall_inst;
 
   const pim_core_config *m_pim_config;
 
@@ -562,10 +560,10 @@ class pim_core_stats : public shader_core_stats {
 class pim_xbar : public simd_function_unit {
  public:
   pim_xbar(register_set *result_port, const shader_core_config *config,
-          pim_core_ctx *core, unsigned issue_reg_id)
+           pim_core_ctx *core, unsigned issue_reg_id)
       : simd_function_unit(config) {
     m_result_port = result_port;
-    m_pipeline_depth = 4; //one for each op, one for result
+    m_pipeline_depth = 4;  // one for each op, one for result
     m_pipeline_reg = new warp_inst_t *[m_pipeline_depth];
     for (unsigned i = 0; i < m_pipeline_depth; i++) {
       m_pipeline_reg[i] = new warp_inst_t(config);
@@ -600,9 +598,9 @@ class pim_xbar : public simd_function_unit {
     m_gpu = m_core->get_gpu();
     weight = buffer();
 
-    // m_xbar_interface = new pseudo_xbar_memory_interface(m_core, m_core->m_cluster, this);
+    // m_xbar_interface = new pseudo_xbar_memory_interface(m_core,
+    // m_core->m_cluster, this);
   }
-
 
   virtual bool can_issue(const warp_inst_t &inst) const {
     return m_dispatch_reg->empty();
@@ -634,7 +632,7 @@ class pim_xbar : public simd_function_unit {
         }
       }
     }
-    
+
     bool cycled = false;
     if (!m_pipeline_reg[PROGRAM_REG]->empty()) {
       // extra caution
@@ -685,9 +683,7 @@ class pim_xbar : public simd_function_unit {
   bool is_issue_partitioned() { return false; }
   // bool xbar_icnt_injection_buffer_full(unsigned size, bool write);
   // void xbar_icnt_inject_request_packet(mem_fetch *mf);
-  unsigned get_used_devices() {
-    return used_rows * used_cols;
-  }
+  unsigned get_used_devices() { return used_rows * used_cols; }
 
   unsigned m_pipeline_depth;
   warp_inst_t **m_pipeline_reg;
@@ -732,10 +728,10 @@ class pim_xbar : public simd_function_unit {
   bool stall;
 };
 
-
 class controller {
-  public:
-  controller(pim_core_ctx *core, pim_core_cluster *cluster, pim_core_config *pim_config, pim_core_stats *pim_stats) {
+ public:
+  controller(pim_core_ctx *core, pim_core_cluster *cluster,
+             pim_core_config *pim_config, pim_core_stats *pim_stats) {
     m_core = core;
     m_cluster = cluster;
     m_pim_config = pim_config;
@@ -755,7 +751,8 @@ class simple_ldst_unit : public ldst_unit {
                    const shader_core_config *config,
                    const memory_config *mem_config,
                    class shader_core_stats *stats, unsigned sid, unsigned tpc,
-                   gpgpu_sim *gpu, exec_shader_core_ctx *core, pim_core_ctx *pim_core, Scoreboard *scoreboard)
+                   gpgpu_sim *gpu, exec_shader_core_ctx *core,
+                   pim_core_ctx *pim_core, Scoreboard *scoreboard)
       : ldst_unit(icnt, mf_allocator, core, NULL, NULL, config, mem_config,
                   stats, sid, tpc) {
     m_pim_core = pim_core;

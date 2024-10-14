@@ -492,7 +492,7 @@ void warp_inst_t::memory_coalescing_arch(bool is_write,
 
   switch (data_size) {
     case 1:
-      segment_size = 1; // TMP fix
+      segment_size = 32; 
       break;
     case 2:
       segment_size = sector_segment_size ? 32 : 64;

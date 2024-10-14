@@ -86,13 +86,6 @@ void gpgpu_sim::visualizer_printstat() {
   }
   gzprintf(visualizer_file, "\n");
 
-  gzprintf(visualizer_file, "xbar_stall_inst: ");
-  gzprintf(visualizer_file, "%u ", m_pim_stats->xbar_stall_inst[STORE_OP]);
-  gzprintf(visualizer_file, "%u ", m_pim_stats->xbar_stall_inst[XBAR_INTEGRATE_OP]);
-  gzprintf(visualizer_file, "%u ", m_pim_stats->xbar_stall_inst[XBAR_SAMPLE_OP]);
-  gzprintf(visualizer_file, "%u ", m_pim_stats->xbar_stall_inst[PSEUDO_LD_OP]);
-  gzprintf(visualizer_file, "\n");
-
   gzclose(visualizer_file);
   /*
      gzprintf(visualizer_file, "CacheMissRate_GlobalLocalL1_All: ");
